@@ -1,0 +1,239 @@
+import { describe, expect, it } from 'vitest'
+import * as XLSX from 'xlsx'
+import { colToIdx, idxToCol, leftJoin, readNum, readStr } from '../parse'
+import { enrichMinusData } from '../pipeline'
+
+/**
+ * Excel column letter 위치에 값을 채운 row 를 만든다.
+ * `entries`: { letter: value } 형태.
+ * 결과 배열의 길이는 가장 큰 letter 인덱스 + 1.
+ */
+function makeRow(entries: Record<string, unknown>): unknown[] {
+  const maxIdx = Math.max(0, ...Object.keys(entries).map((l) => colToIdx(l)))
+  const row: unknown[] = new Array(maxIdx + 1).fill(null)
+  for (const [letter, value] of Object.entries(entries)) {
+    row[colToIdx(letter)] = value
+  }
+  return row
+}
+
+/**
+ * 2차원 배열(첫 2행은 더미 헤더)에서 xlsx ArrayBuffer 생성.
+ */
+function makeWorkbookBuffer(rows: unknown[][]): ArrayBuffer {
+  const ws = XLSX.utils.aoa_to_sheet(rows)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1')
+  const out = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer
+  return out
+}
+
+describe('parse utilities', () => {
+  it('colToIdx / idxToCol', () => {
+    expect(colToIdx('A')).toBe(0)
+    expect(colToIdx('Z')).toBe(25)
+    expect(colToIdx('AA')).toBe(26)
+    expect(colToIdx('AE')).toBe(30)
+    expect(colToIdx('AG')).toBe(32)
+    expect(idxToCol(0)).toBe('A')
+    expect(idxToCol(30)).toBe('AE')
+    expect(idxToCol(32)).toBe('AG')
+  })
+
+  it('readNum: 숫자/문자열 숫자/null', () => {
+    const row = makeRow({ A: 1000, B: '1,234', C: null, D: '', E: 'NaN' })
+    expect(readNum(row, 'A')).toBe(1000)
+    expect(readNum(row, 'B')).toBe(1234)
+    expect(readNum(row, 'C')).toBeNull()
+    expect(readNum(row, 'D')).toBeNull()
+    expect(readNum(row, 'E')).toBeNull()
+  })
+
+  it('readStr: 공백/null', () => {
+    const row = makeRow({ A: '  hello  ', B: '', C: null, D: 42 })
+    expect(readStr(row, 'A')).toBe('hello')
+    expect(readStr(row, 'B')).toBeNull()
+    expect(readStr(row, 'C')).toBeNull()
+    expect(readStr(row, 'D')).toBe('42')
+  })
+
+  it('leftJoin: 매칭 / 미매칭 / 중복 키 첫 행 보존', () => {
+    const left = [
+      makeRow({ AE: 'ORD-1' }),
+      makeRow({ AE: 'ORD-2' }),
+      makeRow({ AE: 'ORD-MISS' }),
+    ]
+    const right = [
+      makeRow({ E: 'ORD-1', Y: 'P-1' }),
+      makeRow({ E: 'ORD-2', Y: 'P-2' }),
+      makeRow({ E: 'ORD-1', Y: 'P-DUP' }), // 중복 — 무시되어야 함
+    ]
+    const joined = leftJoin(left, right, 'AE', 'E')
+    expect(joined).toHaveLength(3)
+    expect(joined[0].right).not.toBeNull()
+    expect(readStr(joined[0].right!, 'Y')).toBe('P-1') // 첫 행 보존
+    expect(readStr(joined[1].right!, 'Y')).toBe('P-2')
+    expect(joined[2].right).toBeNull()
+  })
+})
+
+describe('enrichMinusData', () => {
+  it('정상 흐름: 두 파일 + cal_amount Map 으로 EnrichedRow 생성 + diagnostics 집계', async () => {
+    // sales_status_basic: 헤더 2행 + 데이터 3행
+    const salesRows: unknown[][] = [
+      makeRow({ A: 'header1' }), // 헤더 행 1
+      makeRow({ A: 'header2' }), // 헤더 행 2
+      // 행1: 정상 + cal_amount 등록됨
+      makeRow({
+        C: '2026-05-22',
+        K: 1000,
+        L: 900,
+        M: 800,
+        R: 100,
+        S: 0.1,
+        T: 100,
+        U: 0.1,
+        AE: 'ORD-1',
+      }),
+      // 행2: K=0 → 계산 일부 null + cal_amount 매칭 실패
+      makeRow({
+        C: '2026-05-22',
+        K: 0,
+        L: 900,
+        M: 800,
+        R: -100,
+        S: -0.1,
+        T: -100,
+        U: -0.1,
+        AE: 'ORD-2',
+      }),
+      // 행3: revenue 조인 실패 (ORD-NONE) → productCode null → extra null
+      makeRow({
+        C: '2026-05-22',
+        K: 500,
+        L: 550,
+        M: 400,
+        R: -50,
+        S: -0.1,
+        T: -50,
+        U: -0.1,
+        AE: 'ORD-NONE',
+      }),
+      // 빈 행 (필터로 제거되어야 함)
+      [],
+    ]
+
+    // revenue_profit_product: 헤더 2행 + 데이터 2행
+    const revenueRows: unknown[][] = [
+      makeRow({ A: 'header1' }),
+      makeRow({ A: 'header2' }),
+      makeRow({ E: 'ORD-1', Y: 'P-100', AG: '상품 100' }),
+      makeRow({ E: 'ORD-2', Y: 'P-200', AG: '상품 200' }),
+    ]
+
+    const salesBuf = makeWorkbookBuffer(salesRows)
+    const revenueBuf = makeWorkbookBuffer(revenueRows)
+
+    // cal_amount: P-100 만 등록, P-200 은 미등록 (매칭 실패)
+    const calMap = new Map<string, number>([['P-100', 50]])
+
+    const { rows, diagnostics } = await enrichMinusData({
+      salesFile: salesBuf,
+      revenueFile: revenueBuf,
+      calAmountMap: calMap,
+    })
+
+    expect(rows).toHaveLength(3)
+
+    // 행1 — 정상
+    expect(rows[0].onlineOrderNo).toBe('ORD-1')
+    expect(rows[0].productCode).toBe('P-100')
+    expect(rows[0].productName).toBe('상품 100')
+    expect(rows[0].K).toBe(1000)
+    expect(rows[0].L).toBe(900)
+    expect(rows[0].R).toBe(100)
+    expect(rows[0].extraSettlement).toBe(50)
+    expect(rows[0].commissionRate).toBeCloseTo(0.1, 10)
+    expect(rows[0].settlementAmount).toBeCloseTo(50, 10)
+    expect(rows[0].totalMargin).toBeCloseTo(200, 10) // 100 + 50 + 50
+    expect(rows[0].totalMarginRate).toBeCloseTo(200 / 900, 10)
+
+    // 행2 — K=0, cal_amount 미등록(P-200 미등록)
+    expect(rows[1].onlineOrderNo).toBe('ORD-2')
+    expect(rows[1].productCode).toBe('P-200')
+    expect(rows[1].K).toBe(0)
+    expect(rows[1].extraSettlement).toBeNull() // 매칭 실패
+    expect(rows[1].commissionRate).toBeNull()
+    expect(rows[1].settlementAmount).toBeNull()
+    expect(rows[1].totalMargin).toBeNull()
+    expect(rows[1].totalMarginRate).toBeNull()
+
+    // 행3 — revenue 조인 실패
+    expect(rows[2].onlineOrderNo).toBe('ORD-NONE')
+    expect(rows[2].productCode).toBeNull()
+    expect(rows[2].productName).toBeNull()
+    expect(rows[2].extraSettlement).toBeNull() // productCode null → cal lookup 못 함
+    // 그래도 K/L/R 이 있으면 totalMargin 계산은 (null ?? 0) 처리로 진행
+    // commissionRate = 1 - 550/500 = -0.1
+    expect(rows[2].commissionRate).toBeCloseTo(-0.1, 10)
+    expect(rows[2].settlementAmount).toBeCloseTo(-25, 10) // 500 * -0.05
+    expect(rows[2].totalMargin).toBeCloseTo(-75, 10) // -50 + -25 + 0
+    expect(rows[2].totalMarginRate).toBeCloseTo(-75 / 550, 10)
+
+    // diagnostics
+    expect(diagnostics.totalRows).toBe(3)
+    expect(diagnostics.matchedCount).toBe(2) // ORD-1, ORD-2
+    expect(diagnostics.unmatchedJoinCount).toBe(1) // ORD-NONE
+    expect(diagnostics.missingExtraCount).toBe(2) // ORD-2(P-200 미등록) + ORD-NONE(productCode null)
+    expect(diagnostics.computeNullCount).toBe(1) // ORD-2 (K=0)
+  })
+
+  it('빈 파일: rows=[], diagnostics 모두 0', async () => {
+    const emptySales = makeWorkbookBuffer([
+      makeRow({ A: 'header1' }),
+      makeRow({ A: 'header2' }),
+    ])
+    const emptyRevenue = makeWorkbookBuffer([
+      makeRow({ A: 'header1' }),
+      makeRow({ A: 'header2' }),
+    ])
+    const { rows, diagnostics } = await enrichMinusData({
+      salesFile: emptySales,
+      revenueFile: emptyRevenue,
+      calAmountMap: new Map(),
+    })
+    expect(rows).toEqual([])
+    expect(diagnostics).toEqual({
+      totalRows: 0,
+      matchedCount: 0,
+      unmatchedJoinCount: 0,
+      missingExtraCount: 0,
+      computeNullCount: 0,
+    })
+  })
+
+  it('cal_amount 에 0 등록된 상품: extraSettlement=0 (누락 아님)', async () => {
+    const salesRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      makeRow({ C: '2026-05-22', K: 1000, L: 900, R: 100, AE: 'ORD-Z' }),
+    ]
+    const revenueRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      makeRow({ E: 'ORD-Z', Y: 'P-ZERO', AG: '상품 Z' }),
+    ]
+    const calMap = new Map<string, number>([['P-ZERO', 0]])
+
+    const { rows, diagnostics } = await enrichMinusData({
+      salesFile: makeWorkbookBuffer(salesRows),
+      revenueFile: makeWorkbookBuffer(revenueRows),
+      calAmountMap: calMap,
+    })
+
+    expect(rows[0].extraSettlement).toBe(0) // null 아님 — 등록됨
+    expect(diagnostics.missingExtraCount).toBe(0) // 누락 아님
+    // totalMargin = 100 + 50 + 0 = 150
+    expect(rows[0].totalMargin).toBeCloseTo(150, 10)
+  })
+})

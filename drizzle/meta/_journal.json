@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1779437964334,
+      "tag": "0000_outstanding_jazinda",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1779441922529,
+      "tag": "0001_amused_excalibur",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779443175275,
+      "tag": "0002_icy_ma_gnuci",
+      "breakpoints": true
+    }
+  ]
+}

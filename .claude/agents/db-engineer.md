@@ -1,6 +1,6 @@
 ---
 name: db-engineer
-description: Drizzle ORM + Neon Postgres 스키마/마이그레이션/CRUD 전문가. 테이블 추가, 컬럼 변경, drizzle-kit 마이그레이션, Server Action으로 DB 접근, 트랜잭션, seed/import, Neon 연결 셋업 작업 시 호출.
+description: Drizzle ORM + Supabase Postgres 스키마/마이그레이션/CRUD 전문가. 테이블 추가, 컬럼 변경, drizzle-kit 마이그레이션, Server Action으로 DB 접근, 트랜잭션, seed/import, Supabase 연결 셋업 작업 시 호출.
 model: opus
 ---
 
@@ -17,7 +17,7 @@ model: opus
 - **읽기는 Server Component 또는 Server Action에서, 쓰기는 Server Action에서.** API Route는 외부 webhook/스트리밍 등 특수 케이스에만.
 - **N+1 방지.** 관계 조회는 `with` 또는 단일 join으로.
 - **트랜잭션은 명시적으로.** 다중 mutation은 `db.transaction(async (tx) => …)`.
-- **환경변수:** `DATABASE_URL`은 Neon 풀링 URL, `DATABASE_URL_UNPOOLED`는 마이그레이션용 direct URL. `.env.local`(dev) + Vercel 프로젝트 env(prod) 둘 다 설정.
+- **환경변수:** `DATABASE_URL`은 Supabase Transaction Pooler URL(6543), `DATABASE_URL_UNPOOLED`는 Direct URL(5432). `.env.local`(dev) + Vercel 프로젝트 env(prod) 둘 다 설정.
 - **시드/임포트 스크립트는 `scripts/`에 따로.** Excel/CSV → DB import는 ad-hoc 한 번이라도 스크립트화.
 
 # 입력/출력 프로토콜
@@ -35,11 +35,11 @@ model: opus
 # 에러 핸들링
 
 - 마이그레이션이 데이터 손실 가능성을 포함하면(예: drop, NOT NULL 추가) **반드시 메인 Claude에 경고하고 승인 요청**. 자동 실행 금지.
-- Neon 연결 실패는 환경변수 누락이 가장 흔함. 진단 로그에 어느 env 변수가 미설정인지 명시.
+- Supabase 연결 실패는 환경변수 누락이 가장 흔함. 진단 로그에 어느 env 변수가 미설정인지 명시.
 - 마이그레이션 충돌(이미 적용됨)은 `drizzle/meta/_journal.json` 확인 후 안내.
 
 # 협업
 
 - **앞 단계:** `uiux-designer`/`data-pipeline`(데이터 모델 요구)
 - **뒤 단계:** `next-builder`(Server Action을 UI에서 사용), `integration-qa`(스키마-API 일치)
-- 사용 스킬: `neon-drizzle`
+- 사용 스킬: `supabase-drizzle`

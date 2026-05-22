@@ -1,0 +1,133 @@
+/**
+ * Excel 파싱 유틸 — excel-mapping 스킬의 패턴을 그대로 적용.
+ *
+ * 클라이언트사이드(브라우저) 사용이 기본이지만, Node 환경(테스트 등)에서도
+ * 동작하도록 ArrayBuffer 입력을 허용. Node 전용 API import 금지.
+ */
+
+import * as XLSX from 'xlsx'
+
+/**
+ * Excel column letter → 0-based index.
+ * A=0, B=1, …, Z=25, AA=26, AB=27, …, AE=30, AG=32
+ */
+export function colToIdx(letter: string): number {
+  let n = 0
+  for (const ch of letter.toUpperCase()) {
+    n = n * 26 + (ch.charCodeAt(0) - 64)
+  }
+  return n - 1
+}
+
+/** 0-based index → Excel column letter (역변환). */
+export function idxToCol(idx: number): string {
+  let s = ''
+  let n = idx + 1
+  while (n > 0) {
+    const r = (n - 1) % 26
+    s = String.fromCharCode(65 + r) + s
+    n = Math.floor((n - 1) / 26)
+  }
+  return s
+}
+
+/**
+ * 셀을 숫자로 안전하게 읽기. "1,000" 같은 문자열 숫자도 처리.
+ * 빈 값/공백/파싱 불가 → null.
+ */
+export function readNum(row: unknown[], colLetter: string): number | null {
+  const v = row[colToIdx(colLetter)]
+  if (v == null || v === '') return null
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null
+  // 문자열 숫자 ("1,000") 방어
+  const cleaned = String(v).replace(/,/g, '').trim()
+  if (cleaned === '') return null
+  const n = Number(cleaned)
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * 셀을 문자열로 안전하게 읽기. 빈 문자열은 null 로 변환.
+ * Date 객체(cellDates: true) 인 경우 ISO 날짜 문자열(YYYY-MM-DD) 로 변환.
+ */
+export function readStr(row: unknown[], colLetter: string): string | null {
+  const v = row[colToIdx(colLetter)]
+  if (v == null) return null
+  if (v instanceof Date) {
+    // 로컬 타임존 영향 회피 — 직접 YYYY-MM-DD 조립
+    const y = v.getFullYear()
+    const m = String(v.getMonth() + 1).padStart(2, '0')
+    const d = String(v.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+  const s = String(v).trim()
+  return s === '' ? null : s
+}
+
+/**
+ * 워크북의 첫 시트를 header:1 모드로 파싱.
+ * - 클라이언트(File) 와 서버(ArrayBuffer) 둘 다 허용.
+ * - cellDates: true 로 날짜 셀을 Date 로 자동 변환.
+ * - raw: true 로 숫자/날짜 원본 보존.
+ * - defval: null 로 빈 셀을 명시적으로 null 로 채움.
+ */
+export async function parseWorkbookToRows(
+  input: File | ArrayBuffer,
+): Promise<unknown[][]> {
+  let buf: ArrayBuffer
+  if (input instanceof ArrayBuffer) {
+    buf = input
+  } else {
+    // File / Blob
+    buf = await input.arrayBuffer()
+  }
+  const wb = XLSX.read(buf, { type: 'array', cellDates: true })
+  const firstSheetName = wb.SheetNames[0]
+  if (!firstSheetName) return []
+  const ws = wb.Sheets[firstSheetName]
+  if (!ws) return []
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, {
+    header: 1,
+    defval: null,
+    raw: true,
+  })
+  return rows
+}
+
+/**
+ * 헤더 행을 건너뛰고 데이터 행만 추출 + 완전 빈 행 제거.
+ */
+export function sliceDataRows(allRows: unknown[][], headerRows: number): unknown[][] {
+  return allRows.slice(headerRows).filter((r) => Array.isArray(r) && r.some((c) => c != null && c !== ''))
+}
+
+/**
+ * LEFT JOIN 패턴 — Map 기반 O(n).
+ * 양쪽 키는 String() 으로 정규화. 중복 키는 첫 행 보존 (덮어쓰기 방지).
+ *
+ * @returns 각 left 행에 대해 right 행 또는 null (매칭 실패) 을 페어로 반환.
+ */
+export function leftJoin(
+  leftRows: unknown[][],
+  rightRows: unknown[][],
+  leftKeyCol: string,
+  rightKeyCol: string,
+): Array<{ left: unknown[]; right: unknown[] | null }> {
+  const idx = new Map<string, unknown[]>()
+  const rk = colToIdx(rightKeyCol)
+  for (const r of rightRows) {
+    const k = r[rk]
+    if (k != null && k !== '') {
+      const key = String(k).trim()
+      if (key !== '' && !idx.has(key)) idx.set(key, r)
+    }
+  }
+
+  const lk = colToIdx(leftKeyCol)
+  return leftRows.map((l) => {
+    const k = l[lk]
+    if (k == null || k === '') return { left: l, right: null }
+    const key = String(k).trim()
+    return { left: l, right: key === '' ? null : idx.get(key) ?? null }
+  })
+}
