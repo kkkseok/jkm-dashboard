@@ -95,10 +95,34 @@ export async function parseWorkbookToRows(
 }
 
 /**
- * 헤더 행을 건너뛰고 데이터 행만 추출 + 완전 빈 행 제거.
+ * Excel 데이터의 마지막에 흔히 붙는 "합계/총계" 행을 식별하는 A열 키워드.
+ * sales_status_basic 마지막 행 A="총계" 케이스 등에서 KPI 합산이 두 배가 되는 문제 방지.
+ * 정상 데이터 행의 A열에는 절대 들어가지 않는 단어들만 등록.
+ */
+const SUMMARY_ROW_LABELS = new Set([
+  '총계',
+  '합계',
+  '소계',
+  '총합',
+  'total',
+  'summary',
+])
+
+function isSummaryRow(row: unknown[]): boolean {
+  const a = row[0]
+  if (a == null) return false
+  const s = String(a).trim().toLowerCase()
+  return SUMMARY_ROW_LABELS.has(s)
+}
+
+/**
+ * 헤더 행을 건너뛰고 데이터 행만 추출 + 완전 빈 행 제거 + 합계/총계 행 제거.
  */
 export function sliceDataRows(allRows: unknown[][], headerRows: number): unknown[][] {
-  return allRows.slice(headerRows).filter((r) => Array.isArray(r) && r.some((c) => c != null && c !== ''))
+  return allRows
+    .slice(headerRows)
+    .filter((r) => Array.isArray(r) && r.some((c) => c != null && c !== ''))
+    .filter((r) => !isSummaryRow(r))
 }
 
 /**

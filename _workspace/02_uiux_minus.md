@@ -4,6 +4,7 @@
 > v1.1 (2026-05-24): §5(관리 페이지)를 append-only 단순화에 맞춰 정정. `cal_amount` 스키마가 (id, productCode, extraSettlement, createdAt) 4필드로 축소, 수정 액션 폐기, 정렬은 id DESC.
 > v1.2 (2026-05-24): 표시 컬럼 12 → 15. **물류비(Q)**, **최종이익액(R−Q)**, **최종이익률((R−Q)/L)** 3개 추가. totalMargin 정의는 그대로(Q 무관). 사용자 확정 — `profit-calc/skill.md` 동시 갱신.
 > v1.3 (2026-05-24): revenue 파일 `revenue_profit_product.xlsx` → `revenue_profit_brand.xlsx` 로 통합. 두 파일이 같은 주문집합·같은 컬럼 구조였고 product 쪽은 BF(브랜드)·AH(상품명) 채움률이 거의 0% 였음. brand 한 파일로 모두 커버. **상품명 letter AG → AH 정정** (이전 AG는 "기본상품 규격"이었음, 사용자 확정). **브랜드명(BF) 컬럼 신규** — 표시 컬럼 15 → 16, 검색에도 포함.
+> v1.4 (2026-05-24): **마이너스 판정 기준 = 총마진율 < 0% 확정** (사용자 결정, §8-1 보류 해결). KPI 5장 → **6장** — "마이너스 건수" 활성화 + **"계산 불가" 카드 신규** (인터랙티브 토글). disabled 마이너스 필터 Select 폐기, **사용자 입력 양쪽 임계값(min, max %) + 구간 안/밖 토글 필터** 로 교체 (기본 `-3% ~ +3%`, 구간 안 = 이상치 검토). chip 영역에 범위/계산불가 chip 추가. parse.ts `sliceDataRows` 에 합계/총계 행 제외 로직 (sales_status_basic 마지막 행 A="총계" 등) → KPI 합산 정상화.
 > 입력: `01_requirements_minus.md`, `profit-calc/skill.md`, `excel-mapping/skill.md`, `ux-patterns/skill.md`, `shadcn-patterns/skill.md`
 > 대상 구현자: `next-builder`
 
@@ -174,11 +175,10 @@
 | 분석 시작 버튼 | `Button` | 두 파일 모두 채워질 때만 enabled. 클릭 시 파싱 진행 |
 | 파싱 진행 표시 | `Skeleton` + 진행 텍스트 (예: "병합 헤더 분석 중… 1/3") | `ux-patterns` 5번 "업로드 중 progress" |
 | 파싱 에러 | `Alert variant="destructive"` | 어느 행/시트/컬럼에서 실패했는지 inline 표시 + "재업로드" CTA |
-| KPI 카드 (×5) | `Card`, `CardHeader`, `CardContent` | 총 행 / 마이너스 행 / 총 매출 / 총 마진 / **추가후정산금 누락**. **"누락" 정의 = cal_amount 매칭 실패만** (값 0으로 등록된 상품은 의도적 등록으로 간주, 누락 아님). 5번째 카드는 `role="button" tabIndex={0}` + `aria-label="추가후정산금 누락 행만 보기"`, hover: `cursor-pointer + bg-accent/30`. **클릭 시 누락 필터 토글** (chip "누락 행만" 표시/해제) |
-| 검색 입력 | `Input` | 300ms debounce. 상품명/코드/주문번호 다중 매칭 |
-| 마이너스 필터 | `Select` (disabled) | 옵션: "전체 표시"(기본) / "마이너스만"(비활성, "기준 미확정" 툴팁) |
-| 누락 필터 chip | `Badge` (제거 가능) | "추가후정산금 누락" 카드 클릭 시 chip "누락 행만 ×" 표시. X로 해제 |
-| 적용 필터 chip | `Badge` (제거 가능) | 검색어 chip + X. `ux-patterns` 6번 |
+| KPI 카드 (×6, v1.4) | `Card`, `CardHeader`, `CardContent` + `ToggleKpiCard` | (1) 총 행 수 / (2) **마이너스 건수** (`총마진율 < 0%` 인 행 수, 음수면 빨강, 정보 표시만) / (3) **계산 불가** (`totalMarginRate === null` 인 행 수, **클릭 가능 — "계산 불가만" 필터 토글**) / (4) 총 매출액 / (5) 총마진액 합계 / (6) **추가후정산금 누락** (클릭 가능 — "누락 행만" 필터 토글). 클릭 가능 카드는 `role="button" tabIndex={0}` + `aria-pressed` + hover `bg-accent/30`. "누락" 정의 = cal_amount 매칭 실패만 (값 0 등록은 누락 아님). 0건 카드 클릭 시 토스트 안내. 그리드: `grid-cols-2 md:grid-cols-6` |
+| 검색 입력 | `Input` | 300ms debounce. 상품명/코드/주문번호/브랜드 다중 매칭 (v1.3) |
+| **총마진율 범위 필터** (v1.4) | `Input type="number"` × 2 (min, max %) + `Select` (모드) + `Button` (초기화) | 사용자가 직접 % 단위 임계값 입력. 기본 `min=-3`, `max=3`, 모드 `inside` (이상치). 모드 옵션: **"구간 안만 (이상치, 기본)"** — 정상 마진(5%↑) 환경에서 ±3% 사이는 마진 낮은 이상치 / "구간 밖만 (정상치)" — 임계값 밖의 안정 행만. 빈 칸 = 해당 방향 무한. `min > max` 면 입력 테두리 빨강 + 안내 `Alert text-destructive` + 필터 비활성. null(총마진율 계산 불가) 행은 양쪽 모드에서 자동 제외 (계산 불가만 보기는 별도 KPI 카드 클릭으로) |
+| 적용 필터 chip | `Badge` (제거 가능) | 검색어 chip + 범위 chip (예: "총마진율 < -3% 또는 > 3%") + 누락 행만 chip + 계산 불가만 chip — 각각 X 로 해제 |
 | 결과 테이블 | `Table`, `TableHeader`, `TableHead`, `TableBody`, `TableRow`, `TableCell` + TanStack | 정렬 가능 헤더(▲▼). 가로 스크롤 wrapper `overflow-x-auto`. **"추가후정산금" 셀(`extraSettlement`)은 `role="button" tabIndex={0}` 으로 만들고 클릭/Enter/Space 시 Dialog 열림** (셀 자체가 인터랙티브) |
 | 추가후정산금 셀 (인터랙티브) | custom `<TableCell>` + `Button variant="ghost"` 형태 | **매칭 실패 행 (cal_amount 이력 없음)** → 셀 표기 "-" + `cursor-pointer hover:bg-accent`, 우상단에 작은 `Plus` 아이콘(`lucide-react`) **상시 노출** (mode 의미 아님, 시각적 affordance 일 뿐). **이력 있는 행 (값 0 포함)** → 호버 시에만 `Pencil` 아이콘 슬쩍. **두 경우 모두 동작은 동일**: 클릭 = 공용 Dialog 열림 → 저장 = `appendCalAmount()` 호출 (append-only INSERT, 새 이력 row). `aria-label`은 시각 분기를 따름 — 매칭 실패: "후정산금 추가 (상품 {productCode})", 이력 있음: "후정산금 새 이력 추가 (상품 {productCode}, 현재 winner {value}원)" |
 | **공용 cal_amount 입력 Dialog** | `Dialog` + `Form` (§5와 동일 컴포넌트 재사용) | `src/components/cal-amount-form-dialog.tsx` 에 구현 완료. §5(관리 페이지)와 §4(분석 페이지) 양쪽에서 import. **append-only 단일 동작 — mode 구분 없음.** 제목은 항상 "후정산금 추가" (분석 페이지에서도 동일 — 컬럼 컨텍스트로 사용자가 인지). Props: `open`, `onOpenChange`, `defaultValues?: { productCode?, extraSettlement? }`, `lockProductCode?: boolean` (분석 페이지에서 `true` — productCode 자동주입 + readonly), `onSaved?: ({ productCode, extraSettlement }) => void` |
@@ -549,7 +549,7 @@
 
 `next-builder`가 구현 전에 확인하면 좋은 항목.
 
-1. **"마이너스" 판정 기준** — `01_requirements_minus.md` 보류 항목. 현재 명세는 "전체 표시"가 기본이고 필터는 `disabled` 상태로 자리만 만든 다음, 색상은 셀 값 자체의 음수에만 적용. 추후 기준 확정 시 KPI "마이너스 건수"와 필터 옵션 enable 동작만 추가.
+1. ~~"마이너스" 판정 기준~~ — **v1.4 해결 (2026-05-24)**: 사용자 확정 = **총마진율 < 0%**. KPI "마이너스 건수" 카드 활성화 (음수면 빨강). disabled 필터 폐기, 사용자 임계값 입력(min/max %) + 구간 밖/안 토글 필터로 교체 — 단순 "< 0" 보다 유연한 이상치 검토 도구.
 2. **매출일 컬럼의 Excel letter** — `01_requirements_minus.md` "표시 필수 컬럼"에 매출일은 있으나 `excel-mapping/skill.md`·`profit-calc/skill.md`의 K~U·AE에 매출일 letter가 누락. 본 명세는 "향후 letter 확정" 메모로 두고 표시 라벨/포맷만 정의.
 3. **CSV 파일명 규칙** — `minus_YYYY-MM-DD.csv` 가정. 사용자 확인 필요 시 변경.
 4. **숨김 컬럼(M/T/S/U) 토글 UI** — 본 단계(v1)는 4컬럼 숨김. 향후 `DropdownMenu` 기반 컬럼 토글(`TanStack column visibility`)을 v2에 추가 권장.

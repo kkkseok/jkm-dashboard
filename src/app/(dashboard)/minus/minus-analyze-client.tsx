@@ -101,6 +101,42 @@ function formatPercent(v: number | null): string {
   return `${(v * 100).toFixed(1)}%`
 }
 
+/**
+ * 범위 chip 라벨 — 적용된 임계값과 모드를 한 줄로 표현.
+ * 예: "총마진율 < -3% 또는 > 3%" (outside, 양쪽 입력)
+ *    "총마진율 ≥ 0%" (inside, max 만 입력 안 했을 때 — outside 처럼 한쪽만 유효해도 정확하게)
+ */
+function formatRangeChip(
+  min: number | null,
+  max: number | null,
+  mode: "inside" | "outside",
+): string {
+  const fmt = (v: number) => `${(v * 100).toFixed(1)}%`
+  if (mode === "outside") {
+    const parts: string[] = []
+    if (min != null) parts.push(`< ${fmt(min)}`)
+    if (max != null) parts.push(`> ${fmt(max)}`)
+    return `총마진율 ${parts.join(" 또는 ")}`
+  }
+  // inside
+  if (min != null && max != null) return `${fmt(min)} ≤ 총마진율 ≤ ${fmt(max)}`
+  if (min != null) return `총마진율 ≥ ${fmt(min)}`
+  if (max != null) return `총마진율 ≤ ${fmt(max)}`
+  return "총마진율 범위"
+}
+
+/**
+ * 사용자가 입력한 % 문자열(예: "-3", "3.5", " 0 ", "") 을 비율(0~1) 로 변환.
+ * 빈 문자열·파싱 실패 → null (= 해당 방향 무한, 필터 비활성).
+ */
+function parsePercent(input: string): number | null {
+  const s = input.trim()
+  if (s === "" || s === "-" || s === "+" || s === ".") return null
+  const n = Number(s)
+  if (!Number.isFinite(n)) return null
+  return n / 100
+}
+
 function todayYMD(): string {
   const d = new Date()
   const y = d.getFullYear()
@@ -151,6 +187,17 @@ export function MinusAnalyzeClient() {
   const [searchInput, setSearchInput] = React.useState("")
   const [searchTerm, setSearchTerm] = React.useState("")
   const [onlyMissing, setOnlyMissing] = React.useState(false)
+  /** 총마진율 범위 필터 — 입력은 % 단위 문자열, 빈 문자열 = 해당 방향 무한 */
+  const [rateMinInput, setRateMinInput] = React.useState("-3")
+  const [rateMaxInput, setRateMaxInput] = React.useState("3")
+  /**
+   * "inside"  = min~max 구간 안만 보기 (이상치 검토 — 마진이 낮은 행)
+   * "outside" = 구간 밖만 보기 (정상치 — 마진이 안정 범위 밖)
+   * 기본 inside (사용자 운영 관행: -3 ~ +3 구간 안이 이상치).
+   */
+  const [rateMode, setRateMode] = React.useState<"inside" | "outside">("inside")
+  /** 총마진율 계산 불가 (null) 행만 보기 */
+  const [onlyComputeNull, setOnlyComputeNull] = React.useState(false)
 
   // 검색 debounce 300ms
   React.useEffect(() => {
@@ -306,6 +353,10 @@ export function MinusAnalyzeClient() {
     setSearchInput("")
     setSearchTerm("")
     setOnlyMissing(false)
+    setOnlyComputeNull(false)
+    setRateMinInput("-3")
+    setRateMaxInput("3")
+    setRateMode("inside")
   }
 
   /* --------------------------------------------------------
@@ -369,11 +420,34 @@ export function MinusAnalyzeClient() {
    * 필터링된 행
    * -------------------------------------------------------- */
 
+  // % 입력 문자열을 비율(0~1) 임계값으로 변환. 빈 문자열·파싱 실패 시 null.
+  // 예: "-3" → -0.03, "3.5" → 0.035
+  const rateMin = React.useMemo(() => parsePercent(rateMinInput), [rateMinInput])
+  const rateMax = React.useMemo(() => parsePercent(rateMaxInput), [rateMaxInput])
+  const rateRangeInvalid =
+    rateMin != null && rateMax != null && rateMin > rateMax
+  /** 범위 필터가 실제로 적용 가능한가 — 한 쪽이라도 입력됐고 invalid 아님 */
+  const rangeActive =
+    !rateRangeInvalid && (rateMin != null || rateMax != null)
+
   const filteredRows = React.useMemo(() => {
     if (rows == null) return []
     const term = searchTerm.toLowerCase()
     return rows.filter((r) => {
       if (onlyMissing && r.extraSettlement != null) return false
+      if (onlyComputeNull && r.totalMarginRate != null) return false
+
+      // 총마진율 범위 필터. null 행은 양쪽 모드에서 제외 (계산 불가는 별도 토글)
+      if (rangeActive) {
+        if (r.totalMarginRate == null) return false
+        const v = r.totalMarginRate
+        const aboveMin = rateMin == null || v >= rateMin
+        const belowMax = rateMax == null || v <= rateMax
+        const inside = aboveMin && belowMax
+        if (rateMode === "inside" && !inside) return false
+        if (rateMode === "outside" && inside) return false
+      }
+
       if (term.length === 0) return true
       const hay = [
         r.productName?.toLowerCase() ?? "",
@@ -383,7 +457,16 @@ export function MinusAnalyzeClient() {
       ].join("")
       return hay.includes(term)
     })
-  }, [rows, searchTerm, onlyMissing])
+  }, [
+    rows,
+    searchTerm,
+    onlyMissing,
+    onlyComputeNull,
+    rangeActive,
+    rateMin,
+    rateMax,
+    rateMode,
+  ])
 
   /* --------------------------------------------------------
    * KPI
@@ -394,6 +477,22 @@ export function MinusAnalyzeClient() {
     let s = 0
     for (const r of rows) if (r.K != null) s += r.K
     return s
+  }, [rows])
+
+  /** 총마진율 < 0% 인 행 수 — KPI "마이너스 건수". 사용자 확정 (2026-05-24) 총마진율 기준. */
+  const negativeCount = React.useMemo(() => {
+    if (!rows) return 0
+    let n = 0
+    for (const r of rows) if (r.totalMarginRate != null && r.totalMarginRate < 0) n++
+    return n
+  }, [rows])
+
+  /** 총마진율 = null 인 행 수 — KPI "계산 불가". K=0 또는 L=0 등으로 계산 불가. */
+  const computeNullRateCount = React.useMemo(() => {
+    if (!rows) return 0
+    let n = 0
+    for (const r of rows) if (r.totalMarginRate == null) n++
+    return n
   }, [rows])
 
   const totalMarginSum = React.useMemo(() => {
@@ -589,7 +688,16 @@ export function MinusAnalyzeClient() {
   // 필터 변경 시 페이지 1로
   React.useEffect(() => {
     table.setPageIndex(0)
-  }, [searchTerm, onlyMissing, table])
+  }, [
+    searchTerm,
+    onlyMissing,
+    onlyComputeNull,
+    rangeActive,
+    rateMin,
+    rateMax,
+    rateMode,
+    table,
+  ])
 
   /* --------------------------------------------------------
    * CSV 다운로드
@@ -777,22 +885,35 @@ export function MinusAnalyzeClient() {
         <>
           <Separator />
 
-          {/* KPI */}
-          <section className="grid grid-cols-2 gap-3 md:grid-cols-5">
+          {/* KPI — v1.4: 6장 (마이너스 건수 활성, 계산 불가 카드 신규) */}
+          <section className="grid grid-cols-2 gap-3 md:grid-cols-6">
             <KpiCard
               label="총 행 수"
               value={koInt.format(diagnostics.totalRows)}
-              sub={
-                diagnostics.computeNullCount > 0
-                  ? `계산 불가 ${koInt.format(diagnostics.computeNullCount)}행 제외`
-                  : undefined
-              }
             />
             <KpiCard
               label="마이너스 건수"
-              value="—"
-              sub="판정 기준 미확정"
-              muted
+              value={koInt.format(negativeCount)}
+              sub={
+                diagnostics.totalRows > 0
+                  ? `총마진율 < 0% · ${((negativeCount / diagnostics.totalRows) * 100).toFixed(1)}%`
+                  : "총마진율 < 0%"
+              }
+              valueClass={negativeCount > 0 ? "text-red-600" : ""}
+            />
+            <ToggleKpiCard
+              label="계산 불가"
+              count={computeNullRateCount}
+              sub="총마진율 계산 불가 (K=0 등)"
+              pressed={onlyComputeNull}
+              onToggle={() => {
+                if (computeNullRateCount === 0) {
+                  toast.info("계산 불가 행이 없습니다")
+                  return
+                }
+                setOnlyComputeNull((v) => !v)
+              }}
+              ariaLabel="계산 불가 행만 보기"
             />
             <KpiCard
               label="총 매출액"
@@ -803,8 +924,10 @@ export function MinusAnalyzeClient() {
               value={koInt.format(Math.round(totalMarginSum))}
               valueClass={totalMarginSum < 0 ? "text-red-600" : ""}
             />
-            <MissingKpiCard
+            <ToggleKpiCard
+              label="추가후정산금 누락"
               count={diagnostics.missingExtraCount}
+              sub="cal_amount 매칭 실패"
               pressed={onlyMissing}
               onToggle={() => {
                 if (diagnostics.missingExtraCount === 0) {
@@ -813,6 +936,7 @@ export function MinusAnalyzeClient() {
                 }
                 setOnlyMissing((v) => !v)
               }}
+              ariaLabel="추가후정산금 누락 행만 보기"
             />
           </section>
 
@@ -845,28 +969,85 @@ export function MinusAnalyzeClient() {
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm text-muted-foreground">
-                  마이너스 필터:
+                  총마진율 범위:
                 </span>
-                <Select disabled value="all">
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={rateMinInput}
+                  onChange={(e) => setRateMinInput(e.target.value)}
+                  placeholder="min"
+                  aria-label="총마진율 최소값 (%)"
+                  className={cn(
+                    "w-20",
+                    rateRangeInvalid && "border-destructive",
+                  )}
+                />
+                <span className="text-sm text-muted-foreground">% ~</span>
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={rateMaxInput}
+                  onChange={(e) => setRateMaxInput(e.target.value)}
+                  placeholder="max"
+                  aria-label="총마진율 최대값 (%)"
+                  className={cn(
+                    "w-20",
+                    rateRangeInvalid && "border-destructive",
+                  )}
+                />
+                <span className="text-sm text-muted-foreground">%</span>
+                <Select
+                  value={rateMode}
+                  onValueChange={(v) =>
+                    setRateMode(v as "inside" | "outside")
+                  }
+                  disabled={!rangeActive}
+                >
                   <SelectTrigger
-                    aria-label="마이너스 필터 (기준 미확정으로 비활성)"
-                    title="판정 기준 미확정"
+                    aria-label="범위 필터 모드"
+                    className="w-40"
                   >
-                    <SelectValue placeholder="전체 표시" />
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">전체 표시</SelectItem>
-                    <SelectItem value="negative" disabled>
-                      마이너스만 (기준 미확정)
+                    <SelectItem value="inside">
+                      구간 안만 (이상치)
+                    </SelectItem>
+                    <SelectItem value="outside">
+                      구간 밖만 (정상치)
                     </SelectItem>
                   </SelectContent>
                 </Select>
+                {(rateMinInput !== "" || rateMaxInput !== "") && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setRateMinInput("")
+                      setRateMaxInput("")
+                    }}
+                    aria-label="범위 초기화"
+                  >
+                    초기화
+                  </Button>
+                )}
               </div>
             </div>
 
-            {(searchTerm.length > 0 || onlyMissing) && (
+            {rateRangeInvalid && (
+              <p className="text-xs text-destructive">
+                최소값이 최대값보다 큽니다. 범위 필터가 적용되지 않습니다.
+              </p>
+            )}
+
+            {(searchTerm.length > 0 ||
+              onlyMissing ||
+              onlyComputeNull ||
+              rangeActive) && (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-muted-foreground">
                   적용된 필터:
@@ -887,6 +1068,26 @@ export function MinusAnalyzeClient() {
                     </button>
                   </Badge>
                 )}
+                {rangeActive && (
+                  <Badge variant="secondary" className="gap-1 pr-1">
+                    {formatRangeChip(
+                      rateMin,
+                      rateMax,
+                      rateMode,
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRateMinInput("")
+                        setRateMaxInput("")
+                      }}
+                      aria-label="범위 필터 해제"
+                      className="ml-1 inline-flex size-4 items-center justify-center rounded hover:bg-foreground/10"
+                    >
+                      <XIcon className="size-3" />
+                    </button>
+                  </Badge>
+                )}
                 {onlyMissing && (
                   <Badge variant="secondary" className="gap-1 pr-1">
                     누락 행만
@@ -894,6 +1095,19 @@ export function MinusAnalyzeClient() {
                       type="button"
                       onClick={() => setOnlyMissing(false)}
                       aria-label="누락 행만 필터 해제"
+                      className="ml-1 inline-flex size-4 items-center justify-center rounded hover:bg-foreground/10"
+                    >
+                      <XIcon className="size-3" />
+                    </button>
+                  </Badge>
+                )}
+                {onlyComputeNull && (
+                  <Badge variant="secondary" className="gap-1 pr-1">
+                    계산 불가만
+                    <button
+                      type="button"
+                      onClick={() => setOnlyComputeNull(false)}
+                      aria-label="계산 불가만 필터 해제"
                       className="ml-1 inline-flex size-4 items-center justify-center rounded hover:bg-foreground/10"
                     >
                       <XIcon className="size-3" />
@@ -1233,14 +1447,24 @@ function KpiCard({
   )
 }
 
-function MissingKpiCard({
+/**
+ * 클릭 가능한 KPI 카드 (필터 토글 카드).
+ * 추가후정산금 누락 / 계산 불가 등 여러 곳에서 재사용.
+ */
+function ToggleKpiCard({
+  label,
   count,
+  sub,
   pressed,
   onToggle,
+  ariaLabel,
 }: {
+  label: string
   count: number
+  sub?: string
   pressed: boolean
   onToggle: () => void
+  ariaLabel: string
 }) {
   const isZero = count === 0
   return (
@@ -1249,7 +1473,7 @@ function MissingKpiCard({
       role="button"
       tabIndex={0}
       aria-pressed={pressed}
-      aria-label={`추가후정산금 누락 행만 보기 (현재 ${koInt.format(count)}건)`}
+      aria-label={`${ariaLabel} (현재 ${koInt.format(count)}건)`}
       onClick={onToggle}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -1258,14 +1482,14 @@ function MissingKpiCard({
         }
       }}
       className={cn(
-        "col-span-2 cursor-pointer transition-colors md:col-span-1",
+        "cursor-pointer transition-colors",
         "hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         pressed && "ring-2 ring-primary",
       )}
     >
       <CardHeader>
         <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">
-          추가후정산금 누락
+          {label}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -1277,9 +1501,9 @@ function MissingKpiCard({
         >
           {koInt.format(count)}건
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {isZero ? "누락 행이 없습니다" : "클릭하여 누락 행만 보기"}
-        </p>
+        {sub && (
+          <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
+        )}
       </CardContent>
     </Card>
   )

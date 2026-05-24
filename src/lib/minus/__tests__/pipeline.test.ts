@@ -214,6 +214,80 @@ describe('enrichMinusData', () => {
     })
   })
 
+  it('합계/총계 행은 제외된다 (A열 텍스트 매칭)', async () => {
+    const salesRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      // 정상 데이터 2행
+      makeRow({
+        A: 'C-NS홈쇼핑(109267)',
+        C: '2026-05-22',
+        K: 1000,
+        L: 900,
+        R: 100,
+        AE: 'ORD-1',
+      }),
+      makeRow({
+        A: 'C-NS홈쇼핑(109267)',
+        C: '2026-05-22',
+        K: 2000,
+        L: 1800,
+        R: 200,
+        AE: 'ORD-2',
+      }),
+      // 합계 행 — 제외되어야 함
+      makeRow({ A: '총계', K: 3000, L: 2700, R: 300 }),
+    ]
+    const revenueRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      makeRow({ E: 'ORD-1', Y: 'P-1', AH: '상품1', BF: '브랜드1' }),
+      makeRow({ E: 'ORD-2', Y: 'P-2', AH: '상품2', BF: '브랜드2' }),
+    ]
+
+    const { rows, diagnostics } = await enrichMinusData({
+      salesFile: makeWorkbookBuffer(salesRows),
+      revenueFile: makeWorkbookBuffer(revenueRows),
+      calAmountMap: new Map(),
+    })
+
+    expect(rows).toHaveLength(2) // 합계 행 제외 후 2행
+    expect(diagnostics.totalRows).toBe(2)
+    // K 합 = 1000 + 2000 = 3000 (합계 행 3000 안 더해짐 — 만약 더해지면 6000)
+    const totalK = rows.reduce((s, r) => s + (r.K ?? 0), 0)
+    expect(totalK).toBe(3000)
+  })
+
+  it('합계 키워드 변형 (합계/소계/TOTAL/대소문자) 도 제외', async () => {
+    const variants = ['합계', '소계', '총합', 'TOTAL', 'total', 'Summary']
+    for (const label of variants) {
+      const salesRows: unknown[][] = [
+        makeRow({ A: 'h1' }),
+        makeRow({ A: 'h2' }),
+        makeRow({
+          A: 'NS',
+          C: '2026-05-22',
+          K: 100,
+          L: 90,
+          R: 10,
+          AE: 'ORD-X',
+        }),
+        makeRow({ A: label, K: 100, L: 90, R: 10 }),
+      ]
+      const revenueRows: unknown[][] = [
+        makeRow({ A: 'h1' }),
+        makeRow({ A: 'h2' }),
+        makeRow({ E: 'ORD-X', Y: 'P-X', AH: '상품X', BF: '브랜드X' }),
+      ]
+      const { rows } = await enrichMinusData({
+        salesFile: makeWorkbookBuffer(salesRows),
+        revenueFile: makeWorkbookBuffer(revenueRows),
+        calAmountMap: new Map(),
+      })
+      expect(rows, `라벨 "${label}" 합계 행 미제외`).toHaveLength(1)
+    }
+  })
+
   it('cal_amount 에 0 등록된 상품: extraSettlement=0 (누락 아님)', async () => {
     const salesRows: unknown[][] = [
       makeRow({ A: 'h1' }),
