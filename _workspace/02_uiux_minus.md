@@ -3,6 +3,7 @@
 > 작성: 2026-05-22 / 작성자: `uiux-designer` 에이전트
 > v1.1 (2026-05-24): §5(관리 페이지)를 append-only 단순화에 맞춰 정정. `cal_amount` 스키마가 (id, productCode, extraSettlement, createdAt) 4필드로 축소, 수정 액션 폐기, 정렬은 id DESC.
 > v1.2 (2026-05-24): 표시 컬럼 12 → 15. **물류비(Q)**, **최종이익액(R−Q)**, **최종이익률((R−Q)/L)** 3개 추가. totalMargin 정의는 그대로(Q 무관). 사용자 확정 — `profit-calc/skill.md` 동시 갱신.
+> v1.3 (2026-05-24): revenue 파일 `revenue_profit_product.xlsx` → `revenue_profit_brand.xlsx` 로 통합. 두 파일이 같은 주문집합·같은 컬럼 구조였고 product 쪽은 BF(브랜드)·AH(상품명) 채움률이 거의 0% 였음. brand 한 파일로 모두 커버. **상품명 letter AG → AH 정정** (이전 AG는 "기본상품 규격"이었음, 사용자 확정). **브랜드명(BF) 컬럼 신규** — 표시 컬럼 15 → 16, 검색에도 포함.
 > 입력: `01_requirements_minus.md`, `profit-calc/skill.md`, `excel-mapping/skill.md`, `ux-patterns/skill.md`, `shadcn-patterns/skill.md`
 > 대상 구현자: `next-builder`
 
@@ -10,7 +11,7 @@
 
 ## 1. 목적 / 사용자 시나리오
 
-판매채널 운영 담당자가 매일 매출 마감 후, 두 개의 엑셀(`sales_status_basic.xlsx`, `revenue_profit_product.xlsx`)을 업로드해 **상품코드 단위로 손실(마이너스) 품목을 확인**한다. 상품코드별 **추가후정산금**은 별도 페이지에서 CRUD로 관리하며, 분석 시 자동 룩업된다. 사용 빈도는 하루 1~2회, 한 번에 수만 행을 다룬다.
+판매채널 운영 담당자가 매일 매출 마감 후, 두 개의 엑셀(`sales_status_basic.xlsx`, `revenue_profit_brand.xlsx`)을 업로드해 **상품코드 단위로 손실(마이너스) 품목을 확인**한다. 상품코드별 **추가후정산금**은 별도 페이지에서 CRUD로 관리하며, 분석 시 자동 룩업된다. 사용 빈도는 하루 1~2회, 한 번에 수만 행을 다룬다.
 
 핵심 사용 흐름:
 1. 좌측 사이드바에서 "마이너스 매출이익률" 진입 → 두 파일 업로드 → "분석 시작" → 결과 테이블 확인 → CSV 다운로드
@@ -108,7 +109,7 @@
 │ ▸ 그룹(예정)│  │  ┌──── 슬롯 1 ────┐    ┌──── 슬롯 2 ────┐                │  │
 │ ─────────   │  │  │   📄 (점선)     │    │   📄 (점선)     │                │  │
 │ 관리         │  │  │ sales_status_   │    │ revenue_profit_ │                │  │
-│ ▸ 추가후…   │  │  │ basic.xlsx      │    │ product.xlsx    │                │  │
+│ ▸ 추가후…   │  │  │ basic.xlsx      │    │ brand.xlsx      │                │  │
 │             │  │  │ [파일 선택]      │    │ [파일 선택]      │                │  │
 │             │  │  │ 또는 끌어놓기    │    │ 또는 끌어놓기    │                │  │
 │             │  │  └────────────────┘    └────────────────┘                │  │
@@ -128,7 +129,7 @@
 │ [≡] JKM Dashboard                                          seokcess@glitzy.kr│
 ├─────────────┬────────────────────────────────────────────────────────────────┤
 │ 사이드바     │  마이너스 매출이익률                  [재업로드]  [CSV 다운로드] │
-│             │  분석 완료: sales_status_basic.xlsx + revenue_profit_product.xlsx│
+│             │  분석 완료: sales_status_basic.xlsx + revenue_profit_brand.xlsx │
 │             │  (2026-05-22 14:32)                                            │
 │             │                                                                │
 │             │  ┌─ 요약 KPI (5개, 카드 자체 클릭 가능 항목 존재) ────────────┐  │
@@ -148,7 +149,7 @@
 │             │  └──────────────────────────────────────────────────────────┘  │
 │             │                                                                │
 │             │  ┌─ 결과 테이블 (가로 스크롤) ──────────────────────────────┐  │
-│             │  │ 매출일 ▲│주문번호│상품코드│상품명│매출액│공급가│이익액│물류비│최종이익액│최종이익률│수수료│후정산│추가⚡│총마진│총마진율│  │
+│             │  │ 매출일 ▲│주문번호│상품코드│상품명│브랜드│매출액│공급가│이익액│물류비│최종이익액│최종이익률│수수료│후정산│추가⚡│총마진│총마진율│  │
 │             │  │ 5/22   │ A001   │ P-123  │…    │1,000│  900│  100│10.0%│   50│    0 │  150│ 16.7%│  │ (이력 있음, 호버 시 ✏️)
 │             │  │ 5/22   │ A002   │ P-124  │…    │  500│  550│  -50│-10.0│  -25│   30 │  -45│ -8.2%│  │ (이력 있음/음수=red)
 │             │  │ 5/22   │ A003   │ P-125  │…    │  800│  720│   80│10.0%│   40│ - ➕ │   - │   -  │  │ (매칭 실패=➕ 상시)
@@ -197,8 +198,9 @@
 |-----------|-------------|------|--------|------|-----------|------|
 | 매출일 | `salesDate` | `sales_status_basic` (날짜 컬럼, 향후 letter 확정) | 좌측 | `YYYY-MM-DD` | - | 표시 |
 | 온라인주문번호 | `onlineOrderNo` | `sales_status_basic.AE` | 좌측 | 문자열 | - | 표시 |
-| 상품코드 | `productCode` | `revenue_profit_product.Y` (조인) | 좌측 | 문자열 | - | 표시 |
-| 상품명 | `productName` | `revenue_profit_product.AG` (조인) | 좌측 | 문자열 (긴 경우 `truncate` + `title` 툴팁) | - | 표시 |
+| 상품코드 | `productCode` | `revenue_profit_brand.Y` (조인) | 좌측 | 문자열 | - | 표시 |
+| 상품명 | `productName` | `revenue_profit_brand.AH` (조인, v1.3 정정 AG→AH) | 좌측 | 문자열 (긴 경우 `truncate` + `title` 툴팁) | - | 표시 |
+| 브랜드명 | `brandName` | `revenue_profit_brand.BF` (조인, v1.3 신규) | 좌측 | 문자열 (긴 경우 `truncate` + `title` 툴팁) | - | 표시. 검색에도 포함 |
 | 매출액 | `K` | `sales_status_basic.K` | 우측 | `ko-KR` 천단위 | red | 표시 |
 | 공급가 | `L` | `sales_status_basic.L` | 우측 | `ko-KR` 천단위 | red | 표시 |
 | 이익액 | `R` | `sales_status_basic.R` | 우측 | `ko-KR` 천단위 | red | 표시 |
@@ -236,7 +238,7 @@
 **시나리오 1 (정상): 첫 분석 → CSV 저장**
 1. 사용자가 `/minus` 진입 → 사이드바에서 "마이너스 매출이익률" 활성 표시.
 2. 슬롯1에 `sales_status_basic.xlsx`를 드래그앤드롭. 슬롯 테두리 solid blue + 파일명 표시. 체크리스트 "☑ 파일1 / ☐ 파일2".
-3. 슬롯2 클릭 → 파일 선택 다이얼로그 → `revenue_profit_product.xlsx` 선택. 체크리스트 "☑ ☑". "분석 시작" 버튼 활성화.
+3. 슬롯2 클릭 → 파일 선택 다이얼로그 → `revenue_profit_brand.xlsx` 선택. 체크리스트 "☑ ☑". "분석 시작" 버튼 활성화.
 4. "분석 시작" 클릭 → 업로드 카드 하단에 `Skeleton` + "(1/3) 병합 헤더 분석" 메시지. 진행 단계 갱신.
 5. 완료 → KPI 4장 + 필터 영역 + 테이블 fade-in. `toast.success("분석 완료 (12,345행)")`.
 6. 검색창에 "P-12" 입력 → 300ms 후 테이블 필터링, 적용 필터 chip "검색: P-12 ×" 표시.

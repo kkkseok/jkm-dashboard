@@ -86,9 +86,10 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     const T = readNum(left, SALES_MAPPING.fields.T)
     const U = readNum(left, SALES_MAPPING.fields.U)
 
-    // 매핑 (revenue)
+    // 매핑 (revenue_profit_brand)
     const productCode = right ? readStr(right, REVENUE_MAPPING.fields.productCode) : null
     const productName = right ? readStr(right, REVENUE_MAPPING.fields.productName) : null
+    const brandName = right ? readStr(right, REVENUE_MAPPING.fields.brandName) : null
 
     if (productCode != null) matchedCount++
     else unmatchedJoinCount++
@@ -127,6 +128,7 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
       U,
       productCode,
       productName,
+      brandName,
       extraSettlement,
       ...profit,
     })

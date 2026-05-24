@@ -71,12 +71,13 @@ const koInt = new Intl.NumberFormat("ko-KR")
 /** 한글 깨짐 방지 — UTF-8 BOM */
 const UTF8_BOM = "﻿"
 
-/** 명세 §4-3 "기본 가시성: 표시" 15개 컬럼 (v1.2 — 물류비/최종이익액/최종이익률 추가) — CSV 도 이 순서/라벨을 따른다. */
+/** 명세 §4-3 "기본 가시성: 표시" 16개 컬럼 (v1.3 — 브랜드명 추가) — CSV 도 이 순서/라벨을 따른다. */
 const CSV_HEADERS: ReadonlyArray<readonly [keyof EnrichedRow, string]> = [
   ["salesDate", "매출일"],
   ["onlineOrderNo", "온라인주문번호"],
   ["productCode", "상품코드"],
   ["productName", "상품명"],
+  ["brandName", "브랜드명"],
   ["K", "매출액"],
   ["L", "공급가"],
   ["R", "이익액"],
@@ -387,6 +388,7 @@ export function MinusAnalyzeClient() {
         r.productName?.toLowerCase() ?? "",
         r.productCode?.toLowerCase() ?? "",
         r.onlineOrderNo?.toLowerCase() ?? "",
+        r.brandName?.toLowerCase() ?? "",
       ].join("")
       return hay.includes(term)
     })
@@ -455,6 +457,22 @@ export function MinusAnalyzeClient() {
           return (
             <span
               className="block max-w-xs truncate"
+              title={v ?? undefined}
+            >
+              {v ?? "-"}
+            </span>
+          )
+        },
+      },
+      {
+        accessorKey: "brandName",
+        header: "브랜드명",
+        enableSorting: true,
+        cell: ({ row }) => {
+          const v = row.original.brandName
+          return (
+            <span
+              className="block max-w-[12rem] truncate"
               title={v ?? undefined}
             >
               {v ?? "-"}
@@ -699,7 +717,7 @@ export function MinusAnalyzeClient() {
                 slotKey="sales"
               />
               <UploadSlot
-                label="revenue_profit_product.xlsx"
+                label="revenue_profit_brand.xlsx"
                 file={revenueFile}
                 error={revenueError}
                 onFileChange={(f) => handleSlotChange("revenue", f)}
@@ -818,7 +836,7 @@ export function MinusAnalyzeClient() {
                 <Input
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="상품명/코드/주문번호 검색"
+                  placeholder="상품명/코드/주문번호/브랜드 검색"
                   className="pl-8 pr-8"
                   aria-label="결과 테이블 검색"
                 />

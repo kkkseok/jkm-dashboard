@@ -134,12 +134,14 @@ export const MINUS_MAPPING = {
     },
   },
   lookup: {
-    file: 'revenue_profit_product',
+    // v1.3 (2026-05-24): product → brand 통합. product 는 BF/AH 가 거의 비어있어 의미가 없었음.
+    file: 'revenue_profit_brand',
     headerRows: 2,
     keyCol: 'E' as const,
     fields: {
       productCode: 'Y',
-      productName: 'AG',
+      productName: 'AH', // v1.3 AG → AH 정정 (AG는 "기본상품 규격")
+      brandName: 'BF', // v1.3 신규
     },
   },
 } as const

@@ -123,12 +123,12 @@ describe('enrichMinusData', () => {
       [],
     ]
 
-    // revenue_profit_product: 헤더 2행 + 데이터 2행
+    // revenue_profit_brand: 헤더 2행 + 데이터 2행 (v1.3: product → brand, AG → AH, BF 추가)
     const revenueRows: unknown[][] = [
       makeRow({ A: 'header1' }),
       makeRow({ A: 'header2' }),
-      makeRow({ E: 'ORD-1', Y: 'P-100', AG: '상품 100' }),
-      makeRow({ E: 'ORD-2', Y: 'P-200', AG: '상품 200' }),
+      makeRow({ E: 'ORD-1', Y: 'P-100', AH: '상품 100', BF: '브랜드 A' }),
+      makeRow({ E: 'ORD-2', Y: 'P-200', AH: '상품 200', BF: '브랜드 B' }),
     ]
 
     const salesBuf = makeWorkbookBuffer(salesRows)
@@ -149,6 +149,7 @@ describe('enrichMinusData', () => {
     expect(rows[0].onlineOrderNo).toBe('ORD-1')
     expect(rows[0].productCode).toBe('P-100')
     expect(rows[0].productName).toBe('상품 100')
+    expect(rows[0].brandName).toBe('브랜드 A')
     expect(rows[0].K).toBe(1000)
     expect(rows[0].L).toBe(900)
     expect(rows[0].R).toBe(100)
@@ -172,6 +173,7 @@ describe('enrichMinusData', () => {
     expect(rows[2].onlineOrderNo).toBe('ORD-NONE')
     expect(rows[2].productCode).toBeNull()
     expect(rows[2].productName).toBeNull()
+    expect(rows[2].brandName).toBeNull()
     expect(rows[2].extraSettlement).toBeNull() // productCode null → cal lookup 못 함
     // 그래도 K/L/R 이 있으면 totalMargin 계산은 (null ?? 0) 처리로 진행
     // commissionRate = 1 - 550/500 = -0.1
@@ -221,7 +223,7 @@ describe('enrichMinusData', () => {
     const revenueRows: unknown[][] = [
       makeRow({ A: 'h1' }),
       makeRow({ A: 'h2' }),
-      makeRow({ E: 'ORD-Z', Y: 'P-ZERO', AG: '상품 Z' }),
+      makeRow({ E: 'ORD-Z', Y: 'P-ZERO', AH: '상품 Z', BF: '브랜드 Z' }),
     ]
     const calMap = new Map<string, number>([['P-ZERO', 0]])
 

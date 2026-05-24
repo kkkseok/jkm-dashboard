@@ -28,9 +28,10 @@ export type EnrichedRow = {
   T: number | null // 이익액(판매가)
   U: number | null // 이익률(판매가)
 
-  // 매핑 (revenue_profit_product)
+  // 매핑 (revenue_profit_brand — v1.3: 기존 product 파일 폐기, brand 한 파일로 통합)
   productCode: string | null // Y
-  productName: string | null // AG
+  productName: string | null // AH (v1.3: AG → AH 정정)
+  brandName: string | null // BF (v1.3 신규)
 
   // 룩업 (cal_amount, 매칭 실패 시 null)
   extraSettlement: number | null // null = 매칭 실패, number = 등록됨(0 포함)

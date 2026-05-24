@@ -4,7 +4,9 @@
  *
  * 출처:
  * - sales_status_basic 의 letter (A~AG): project_minus_logic.md (사용자 확정)
- * - revenue_profit_product 의 letter (E, Y, AG): project_minus_logic.md
+ * - revenue_profit_brand 의 letter (E, Y, AH, BF): 2026-05-24 사용자 확정
+ *   (이전 v1: revenue_profit_product, productName AG → 두 파일이 같은 주문집합·같은 컬럼이지만
+ *    product 쪽은 BF(브랜드)·AH(상품명) 채움률이 거의 0% 라 의미가 없었음. brand 파일로 통합)
  * - 헤더 행 수(2): excel-mapping/skill.md §3 (2행짜리 병합 헤더)
  */
 
@@ -28,17 +30,16 @@ export const SALES_MAPPING = {
 } as const
 
 export const REVENUE_MAPPING = {
-  fileName: 'revenue_profit_product',
-  /**
-   * revenue_profit_product 의 헤더 행 수가 정확히 몇 행인지 미확정.
-   * 우선 2 로 두고, 파싱 결과 anomaly 가 있으면 진단 로그에 표시(자동 변경 금지).
-   */
+  /** v1.3 (2026-05-24): product → brand 로 변경. brand 가 같은 주문집합을 상위호환으로 채움 */
+  fileName: 'revenue_profit_brand',
+  /** 병합 헤더 2행 (실데이터로 확인 완료 2026-05-24). */
   headerRows: 2,
   /** revenue 의 매핑 key (= 주문번호) */
   keyCol: 'E' as const,
   fields: {
     productCode: 'Y', // 상품코드
-    productName: 'AG', // 상품명
+    productName: 'AH', // 상품명 (v1.3: AG → AH 정정, 사용자 확정 2026-05-24)
+    brandName: 'BF', // 브랜드명 (v1.3 신규)
   },
 } as const
 
