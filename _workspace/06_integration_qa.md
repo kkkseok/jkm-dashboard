@@ -1,106 +1,120 @@
 # 06 — P6 통합 QA 보고서 (마이너스 매출이익률 5단면)
 
 > 작성: 2026-05-24 / 작성자: `integration-qa` 에이전트
-> 검증 범위: P5-3 완료 직후 — Excel letter ↔ pipeline 필드 ↔ DB 컬럼 ↔ Server Action 응답 키 ↔ UI 표시 컬럼
-> 자동 검증 결과: `pnpm tsc --noEmit` PASS (exit 0) / `pnpm test` 16/16 PASS / `pnpm lint` 0 errors, 3 warnings
+> v1.4 (2026-05-24) 동기화: v1.2 최종이익액·v1.3 brand 통합·v1.4 범위 필터/KPI 6장/합계행 + P6 minor 처리 결과까지 반영
+> 검증 범위: P5-3 완료 직후 ~ v1.4 — Excel letter ↔ pipeline 필드 ↔ DB 컬럼 ↔ Server Action 응답 키 ↔ UI 표시 컬럼
+> 자동 검증 결과: `pnpm tsc --noEmit` PASS (exit 0) / `pnpm test` **26/26** PASS / `pnpm lint` **0 errors, 2 warnings** (TanStack 호환성 한계만)
 
 ---
 
 ## 1. 결론
 
-**조건부 통과 (Pass with notes)** — P7(Vercel 배포)을 막는 blocker 는 없음.
+**통과 (Pass)** — P7(Vercel 배포)을 막는 blocker 없음.
 
-핵심 데이터 흐름(5단면)은 한 줄로 일관됨. 자동 검증(typecheck/test/lint) 모두 errors 없음. 발견된 항목은 (a) 명세 문서(`03_schema_minus.md`) 잔여 upsert 표현 1건 (minor — 문서만), (b) lint warning 으로 드러난 미사용 `calAmountMap` getter 1건 (nit), (c) base-ui Button `render` 패턴 점검 결과 위반 없음 — 입니다.
+v1.4 시점에 P6 발견 이슈 2건(03 문서, lint warning)은 모두 해결 완료. 핵심 데이터 흐름(5단면)은 한 줄로 일관됨. v1.2 최종이익액·v1.3 brand 통합·v1.4 범위 필터까지 매핑 정합성 유지.
 
 ---
 
-## 2. 5단면 한 줄 매핑표
+## 2. 5단면 한 줄 매핑표 (v1.4 — 17 도메인 필드)
 
 | # | 표시 라벨 / 사용자 식별자 | ① Excel letter | ② Pipeline 필드 (`EnrichedRow`) | ③ DB 컬럼 (`cal_amount`) | ④ Server Action 응답 키 | ⑤ UI accessorKey / 라벨 | 통과 |
 |---|------|----|----|----|----|----|----|
 | 1 | 매출일 | `sales.C` | `salesDate: string\|null` | — | — | `salesDate` / "매출일" | OK |
 | 2 | 온라인주문번호 | `sales.AE` (join key) | `onlineOrderNo` | — | — | `onlineOrderNo` / "온라인주문번호" | OK |
-| 3 | 상품코드 | `revenue.Y` (after join, key `revenue.E ↔ sales.AE`) | `productCode` | `cal_amount.product_code` (`productCode`) | `CalAmount.productCode`, `getCalAmountMap` Map key | `productCode` / "상품코드" | OK |
-| 4 | 상품명 | `revenue.AG` | `productName` | — | — | `productName` / "상품명" (truncate) | OK |
-| 5 | 매출액 | `sales.K` | `K: number\|null` | — | — | id `K` / "매출액" (`numericColumn`) | OK |
-| 6 | 공급가 | `sales.L` | `L` | — | — | id `L` / "공급가" | OK |
-| 7 | (숨김) 원가 | `sales.M` | `M` | — | — | 컬럼 정의 없음 (v2 토글 예정) | OK (의도) |
-| 8 | 이익액(공급가) | `sales.R` | `R` | — | — | id `R` / "이익액" | OK |
-| 9 | (숨김) 이익률(공급가) | `sales.S` | `S` | — | — | 컬럼 정의 없음 | OK (의도) |
-| 10 | (숨김) 이익액(판매가) | `sales.T` | `T` | — | — | 컬럼 정의 없음 | OK (의도) |
-| 11 | (숨김) 이익률(판매가) | `sales.U` | `U` | — | — | 컬럼 정의 없음 | OK (의도) |
-| 12 | 수수료 | (계산) `1 - L/K` | `commissionRate` | — | — | id `commissionRate` / "수수료" (`percentColumn`) | OK |
-| 13 | 후정산금 | (계산) `K × (commissionRate/2)` | `settlementAmount` | — | — | id `settlementAmount` / "후정산금" | OK |
-| 14 | 추가후정산금 | `cal_amount.B` 룩업 (← `productCode`) | `extraSettlement: number\|null` | `extra_settlement integer NOT NULL` | `CalAmount.extraSettlement`, `getCalAmountMap` Map value | `accessorKey: "extraSettlement"` / "추가후정산금" (인터랙티브 셀) | OK |
-| 15 | 총마진액 | (계산) `R + settlementAmount + (extraSettlement ?? 0)` | `totalMargin` | — | — | id `totalMargin` / "총마진액" | OK |
-| 16 | 총마진율 | (계산) `totalMargin / L` | `totalMarginRate` | — | — | id `totalMarginRate` / "총마진율" | OK |
+| 3 | 상품코드 | `brand.Y` (after join, key `brand.E ↔ sales.AE`) | `productCode` | `cal_amount.product_code` | `CalAmount.productCode`, `getCalAmountMap` Map key | `productCode` / "상품코드" | OK |
+| 4 | 상품명 (v1.3 AG→AH) | `brand.AH` | `productName` | — | — | `productName` / "상품명" (truncate) | OK |
+| 5 | **브랜드명** (v1.3) | `brand.BF` | `brandName` | — | — | `brandName` / "브랜드명" (truncate) | OK |
+| 6 | 매출액 | `sales.K` | `K: number\|null` | — | — | `K` / "매출액" (`numericColumn`) | OK |
+| 7 | 공급가 | `sales.L` | `L` | — | — | `L` / "공급가" | OK |
+| 8 | (숨김) 원가 | `sales.M` | `M` | — | — | 컬럼 정의 없음 (v2 토글) | OK (의도) |
+| 9 | **물류비** (v1.2) | `sales.Q` | `Q` | — | — | `Q` / "물류비" | OK |
+| 10 | 이익액(공급가) | `sales.R` | `R` | — | — | `R` / "이익액" | OK |
+| 11 | (숨김) 이익률(공급가) | `sales.S` | `S` | — | — | 컬럼 정의 없음 | OK (의도) |
+| 12 | (숨김) 이익액(판매가) | `sales.T` | `T` | — | — | 컬럼 정의 없음 | OK (의도) |
+| 13 | (숨김) 이익률(판매가) | `sales.U` | `U` | — | — | 컬럼 정의 없음 | OK (의도) |
+| 14 | 수수료 | (계산) `1 - L/K` | `commissionRate` | — | — | `commissionRate` / "수수료" (`percentColumn`) | OK |
+| 15 | 후정산금 | (계산) `K × (commissionRate/2)` | `settlementAmount` | — | — | `settlementAmount` / "후정산금" | OK |
+| 16 | 추가후정산금 | `cal_amount.B` 룩업 | `extraSettlement: number\|null` | `extra_settlement integer NOT NULL` | `CalAmount.extraSettlement`, `getCalAmountMap` Map value | `extraSettlement` / "추가후정산금" (인터랙티브 셀) | OK |
+| 17 | 총마진액 | (계산) `R + settlementAmount + (extraSettlement ?? 0)` | `totalMargin` | — | — | `totalMargin` / "총마진액" | OK |
+| 18 | 총마진율 | (계산) `totalMargin / L` | `totalMarginRate` | — | — | `totalMarginRate` / "총마진율" | OK |
+| 19 | **최종이익액** (v1.2) | (계산) `R - Q` | `finalProfit` | — | — | `finalProfit` / "최종이익액" | OK |
+| 20 | **최종이익률** (v1.2) | (계산) `(R-Q) / L` | `finalProfitRate` | — | — | `finalProfitRate` / "최종이익률" (`percentColumn`) | OK |
 
-매핑 정합성: 16개 모두 통과. CSV 출력(`CSV_HEADERS`) 12개 = 표시 컬럼 12개와 동일 키·동일 순서.
+매핑 정합성: 20개 모두 통과. UI 표시 16개 + 숨김 4개. CSV 출력(`CSV_HEADERS`) 16개 = 표시 컬럼과 동일 키·동일 순서.
 
 ---
 
-## 3. 이번 마일스톤 핵심 항목 점검 (사용자 지정 1~10)
+## 3. 마일스톤 항목 점검 (v1.1 → v1.4 누적)
 
 | # | 항목 | 결과 | 비고 |
 |---|------|------|------|
-| 1 | append-only 일관성 (5단면 모두 4필드 + UNIQUE 제거 + id DESC + DISTINCT ON) | OK | `schema.ts`, `0001/0002 SQL`, `actions.ts`(`appendCalAmount`/`deleteCalAmount(id)`/`listCalAmount` `id DESC`/`getCalAmountMap` DISTINCT ON), UI(`cal-amount-list-client` 컬럼 3개+삭제, `cal-amount-form-dialog` 2필드) — 명세 §5(v1.1) 와 1:1 |
-| 2 | 공용 Dialog props 정합성 | OK | 양쪽 호출 비교:<br>· 분석: `<CalAmountFormDialog open onOpenChange defaultValues={{productCode}} lockProductCode onSaved={({productCode,extraSettlement})=>applyCalAmountUpdate(...)} />`<br>· 관리: `<CalAmountFormDialog open onOpenChange onSaved={handleSaved} />`<br>props 시그니처와 정확히 일치 |
-| 3 | EnrichedRow ↔ §4-3 표 ↔ UI accessorKey ↔ CSV 컬럼 | OK | 위 §2 표 참조. 표시 12개·숨김 4개(`M/T/S/U`) `EnrichedRow`에는 존재, UI 컬럼 정의에는 의도적으로 누락(v2 토글) |
-| 4 | 추가후정산금 셀 동작 통일 (mode 분기 없음) | OK | `cellDialog` state 가 `{open, productCode}` 만 보유 (mode 없음). `appendCalAmount` 한 종류만 호출. 시각 분기는 `isMissing` boolean 으로 ➕/✏️ 아이콘 + `aria-label` 만 분기 |
-| 5 | 클라이언트 자동 재계산 (calAmountMap+행+KPI) | OK | `applyCalAmountUpdate` (minus-analyze-client:314~370): ① `setCalAmountMap` 갱신 ② 같은 productCode 행 전체 `computeProfit` 재호출 ③ `diagnostics.missingExtraCount` 갱신 ④ 1초 하이라이트 ⑤ 토스트 |
-| 6 | null vs 0 의미 보존 | OK | pipeline `extraSettlement === null` 매칭 실패 유지 (`pipeline.ts:96~100`), `missingExtraCount` 는 null 만 카운트, UI 셀은 `isMissing = r.extraSettlement == null` 로 분기, CSV 도 `v == null ? "" : ...` — KPI/필터/셀 모두 일관 |
-| 7 | CSV 컬럼 순서/포맷 | OK | `CSV_HEADERS` 12개 키·순서 = 표시 컬럼. UTF-8 BOM `﻿` (`UTF8_BOM`), 정수는 `String(Math.round(v))` raw (천단위 없음), 비율은 `xx.x%`, 파일명 `minus_${todayYMD()}.csv` |
-| 8 | 5번째 KPI 카드 모바일 grid 패턴 | OK | `<section className="grid grid-cols-2 gap-3 md:grid-cols-5">` (761행) + `MissingKpiCard` 의 `className="col-span-2 ... md:col-span-1 ..."` (1241행) — 명세 §4-7 와 일치 |
-| 9 | 마이너스 필터/KPI disabled | OK | KPI "마이너스 건수" 카드는 `value="—"` + `sub="판정 기준 미확정"` + `muted` (771~776행). `<Select disabled value="all">` + `<SelectItem value="negative" disabled>` (832~845행) |
-| 10 | base-ui Button + `render` 비-button 패턴 점검 | OK (위반 0건) | `render={...}` 호출 8건 중 비-button 요소를 넘기는 것은 `minus-analyze-client.tsx:1153` 1건뿐이며 이미 `nativeButton={false}` 처리됨. 나머지(`layout.tsx:29` SheetTrigger, `dialog.tsx:65/112`, `select.tsx:51/129`, `sheet.tsx:65`)는 모두 `<Button .../>` 를 render 함 — primitive 가 button 으로 폴리모픽이라 안전 |
+| 1 | append-only 일관성 (v1.1) | OK | schema 4컬럼 + UNIQUE 제거 + id DESC + DISTINCT ON. 5단면 일치 |
+| 2 | 공용 Dialog props 정합성 | OK | 분석/관리 양쪽 호출 시그니처 일치 |
+| 3 | EnrichedRow ↔ 명세 §4-3 ↔ UI ↔ CSV | OK | 표시 16개 + 숨김 4개 = 20개. CSV 16개 일치 |
+| 4 | 추가후정산금 셀 동작 통일 (mode 분기 없음) | OK | `cellDialog = {open, productCode}` 만 보유, `appendCalAmount` 한 종류, 시각 분기는 `isMissing` boolean |
+| 5 | 클라이언트 자동 재계산 (v1.2 Q 인자 포함) | OK | `applyCalAmountUpdate` 가 `computeProfit({K, L, Q, R, extraSettlement})` 호출 → 총마진/최종이익액 모두 재계산. P6 정리로 `calAmountMap` state 폐기 |
+| 6 | null vs 0 의미 보존 | OK | pipeline `extraSettlement === null` 유지, `missingExtraCount` 는 null 만 카운트, UI `isMissing = r.extraSettlement == null`, CSV `v == null ? "" : ...` |
+| 7 | CSV 컬럼 순서/포맷 (v1.4 — 16개) | OK | `CSV_HEADERS` 16개 키·순서 = 표시 컬럼. UTF-8 BOM, 정수 raw, 비율 `xx.x%`, 파일명 `minus_${todayYMD()}.csv` |
+| 8 | KPI 모바일 grid (v1.4 — 6장) | OK | `grid-cols-2 md:grid-cols-6` — 모바일 3행×2열 배치 |
+| 9 | **마이너스 판정 기준 확정** (v1.4) | OK | KPI "마이너스 건수" 활성 (`총마진율 < 0%` 고정 정의, 빨강). 범위 필터(min/max + inside/outside) 별도 |
+| 10 | base-ui Button + `render` 비-button 패턴 | OK | `nativeButton={false}` 처리됨 (`minus-analyze-client.tsx` 파일 선택 버튼) |
+| 11 | **v1.2 최종이익액/최종이익률** | OK | mapping(Q) ↔ types(Q/finalProfit/finalProfitRate) ↔ calc ↔ pipeline ↔ UI 컬럼 3개 ↔ CSV 3개 일관. totalMargin 정의는 Q 무관 유지 |
+| 12 | **v1.3 brand 통합 + 상품명 AH** | OK | `revenue_profit_brand` + `productName: AH` + `brandName: BF`. 매칭률 product 와 동일 (1378/1467). 검색 매칭에 brandName 포함 |
+| 13 | **v1.4 합계행 제외** | OK | `parse.ts` `sliceDataRows` 가 A열 `총계/합계/소계/총합/total/summary` 행 자동 제외. 테스트 2건 신규 |
+| 14 | **v1.4 범위 필터** | OK | `parsePercent` % → 비율 변환, min/max + inside/outside 모드, null 자동 제외, min>max invalid 처리, chip 표시·해제, 기본 `-3 ~ 3 inside` |
+| 15 | **v1.4 "계산 불가" KPI 카드 신규** | OK | `ToggleKpiCard` 로 일반화 (누락/계산불가 양쪽 사용). `totalMarginRate=null` 카운트 + 클릭 토글 + chip |
 
 ---
 
-## 4. 발견된 이슈
+## 4. 발견된 이슈 — 모두 처리 완료
 
-### Issue #1 — `_workspace/03_schema_minus.md` 가 upsert 시절 그대로 (minor, 문서만)
+### Issue #1 — `_workspace/03_schema_minus.md` 가 upsert 시절 그대로 ✅ 해결
 
-- 위치: `_workspace/03_schema_minus.md:36-58, 70-95, 156-206`
-- 기대: append-only v1.1 모델 — `cal_amount` 4컬럼(`id`/`productCode`/`extraSettlement`/`createdAt`/`updatedAt`), UNIQUE 제거, Server Action 은 `appendCalAmount`/`deleteCalAmount(id)` (id 인자)
-- 실제: 여전히 7컬럼(productName/memo 포함), `cal_amount_product_code_uniq` UNIQUE, `upsertCalAmount`, `deleteCalAmount(productCode: string)` 로 기술. import 스크립트 로그 문구(`created M, updated K`)도 upsert 시절 잔재
-- 추정 원인: `project_progress.md` "다음 할 일 1번 — 명세 §5 갱신" 이 `02_uiux_minus.md` 만 v1.1 갱신되고 `03_schema_minus.md` 는 누락됨
-- 영향: 실 코드와 명세 불일치 → 차후 onboarding 시 혼선. 빌드/런타임 영향 없음
-- 수정 담당: `db-engineer` (혹은 사용자 직접 한 줄 추기)
-- 권장 패치: §2 표 4필드로 축소, §3 `upsertCalAmount` 절을 `appendCalAmount` 로 교체 + `deleteCalAmount(id: number)`, §3-4 `getCalAmountMap` 에 "DISTINCT ON productCode + id DESC" 명시, §7 "upsert target unique" 표현 제거
+- 처리 일자: 2026-05-24 (P6 minor 정리)
+- 처리 내용: 통째 재작성. append-only v1.1 모델 반영 (4컬럼 + UNIQUE 제거 + `appendCalAmount`/`deleteCalAmount(id)`/`getCalAmountMap` DISTINCT ON + Supabase Pooler 2종 가이드 + 마이그레이션 0000/0001/0002 현황)
 
-### Issue #2 — `calAmountMap` state 가 read 사용처 없음 (nit, lint warning)
+### Issue #2 — `calAmountMap` state 가 read 사용처 없음 ✅ 해결
 
-- 위치: `src/app/(dashboard)/minus/minus-analyze-client.tsx:144`
-- 기대: 분석 후 셀 저장 시 갱신된 calAmountMap 이 어떤 read 측에서도 활용되거나, 활용되지 않는다면 setter-only 로 줄이거나 의도 주석 추가
-- 실제: `[calAmountMap, setCalAmountMap]` 선언 후 `setCalAmountMap` 만 사용. read 사용처 0 → ESLint `@typescript-eslint/no-unused-vars` warning
-- 추정 원인: 셀 저장 시 갱신은 했지만, 재분석(=`runAnalyze`) 시 어차피 `getCalAmountMap()` 으로 fresh fetch 함. 즉 클라이언트 상태로 유지할 필요가 없거나, 향후 "재분석 없이 같은 파일 다른 cal_amount 셋으로 재계산" 용도로 남겨둔 슬롯
-- 영향: 기능 없음 (메모리 점유 미미). 런타임 미영향
-- 수정 담당: `next-builder`
-- 권장 패치 한 줄: 둘 중 택1 — (A) `const setCalAmountMap = React.useState<Map<string, number>>(new Map())[1]` 로 setter-only 축소 + 주석 "셀 저장 winner 캐시(현 v1 미사용)", 또는 (B) 변수 자체 제거하고 `applyCalAmountUpdate` 도 Map 갱신부 삭제
+- 처리 일자: 2026-05-24 (P6 minor 정리)
+- 처리 내용: state 통째 제거. `freshMap → calAmountMap` 으로 인라인. 분석 시작 시점의 fresh fetch + 행 재계산은 `rows` state 의 각 행 `extraSettlement` 로 처리됨 — Map 보관 불필요
+- 결과: lint warnings 3 → 2 (남은 2건은 TanStack `useReactTable` 호환성 한계, 무시 OK)
 
-### Issue #3 — 이력 셀(✏️) 클릭 시 `defaultValues.extraSettlement` 자동 채움 여부 (확인용, 통과)
+### Issue #3 — 이력 셀(✏️) 클릭 시 `defaultValues.extraSettlement` 미주입 (확인용) ✅ 통과
 
-- 위치: `src/app/(dashboard)/minus/minus-analyze-client.tsx:1027-1030`
-- 명세 §4-5 시나리오 5-12: "이력 있는 행을 클릭해도 `extraSettlement` 는 빈 칸으로 시작 (새 이력을 추가하는 동작)"
-- 코드: `defaultValues={ cellDialog.productCode != null ? { productCode: cellDialog.productCode } : undefined }` — `extraSettlement` 미주입 → Dialog의 `toFormValues` 에서 `""` (빈 칸) 으로 시작
-- 결과: **OK** (명세대로 빈 칸 진입)
+- 명세 §4-5 시나리오 5-12: "이력 있는 행을 클릭해도 `extraSettlement` 는 빈 칸으로 시작"
+- 코드: `defaultValues={ cellDialog.productCode != null ? { productCode: cellDialog.productCode } : undefined }` — `extraSettlement` 미주입 → 빈 칸으로 시작
+- 결과: OK (명세대로)
+
+### Issue #4 — sales 의 합계 행이 KPI 합산에 포함 ✅ 해결 (v1.4)
+
+- 발견: 사용자가 시연 중 "총 매출이 두 배로 보임" 보고
+- 원인: `sales_status_basic.xlsx` 마지막 행 A="총계" 가 `sliceDataRows` 의 빈 행 필터에만 의존해 통과
+- 처리: `parse.ts` `sliceDataRows` 에 A열 키워드 매칭(`총계/합계/소계/총합/total/summary`) 추가
+- 검증: 신규 테스트 2건(정상 합계행 + 라벨 변형) 추가, 모두 통과
+
+### Issue #5 — 마이너스 범위 필터 inside/outside 의미 거꾸로 ✅ 해결 (v1.4)
+
+- 발견: 사용자가 시연 중 "필터가 적용 안 되는 것처럼 보임" 보고
+- 원인: 기본 `outside` (구간 밖만 보기) 였는데, 사용자 운영 관행상 ±3% 안이 "마진 낮은 이상치" — `inside` 가 자연스러움. 기본값이 거꾸로
+- 처리: 기본 모드 `inside` 로 변경, Select 라벨도 의미 정정 ("구간 안만 (이상치)" / "구간 밖만 (정상치)")
 
 ### 그 외 (참고)
 
-- `useReactTable` lint warning 2건(`cal-amount-list-client.tsx:223`, `minus-analyze-client.tsx:556`): TanStack Table API 가 React Compiler 와 호환되지 않아 컴파일러 메모이제이션 skip — TanStack 측 알려진 한계, 동작 영향 없음. 무시 가능
-- `revenue_profit_product` 의 `headerRows = 2` 는 추정값(`mapping.ts:35` 주석). 실 파일로 첫 분석 돌릴 때 anomaly 보이면 한 곳만 수정. 본 검증 단계 미해결 — 사용자가 실데이터로 한 번 확인 필요
+- `useReactTable` lint warning 2건(`cal-amount-list-client.tsx:223`, `minus-analyze-client.tsx:585`): TanStack Table API 가 React Compiler 와 호환되지 않아 컴파일러 메모이제이션 skip — TanStack 알려진 한계, 동작 영향 없음. 무시 가능
+- `revenue_profit_brand` 의 `headerRows = 2` 는 v1.3 시점 실데이터로 확인 완료 (`mapping.ts:33` 주석 갱신됨)
+- sales/brand 매칭 실패 84건 (5.7%): brand export 시점/조건 차이로 코드 변경 불가능한 데이터 누락. 운영팀 사이드 처리
 
 ---
 
 ## 5. P7 (Vercel 배포) 전 blocker
 
-**없음.** Issue #1 은 문서 정정이고, #2 는 lint warning. P7 진행 가능.
+**없음.** P6 발견 이슈 모두 해결. v1.4 까지 P7 진입 가능.
 
-권장 처리 순서: #1(문서 정합) → #2(lint clean) → P7 배포.
+권장 처리 순서: 이미 정리 완료 → P7 배포 진입.
 
 ---
 
-## 6. 자동 검증 결과 원문
+## 6. 자동 검증 결과 원문 (v1.4 시점)
 
 ```
 $ pnpm tsc --noEmit
@@ -108,12 +122,26 @@ exit=0  (no output)
 
 $ pnpm test
  Test Files  2 passed (2)
-      Tests  16 passed (16)
-   Duration  525ms
+      Tests  26 passed (26)
+   Duration  ≈430ms
+
+ - calc.test.ts: 16 케이스 (기존 9 + v1.2 finalProfit/finalProfitRate 7건)
+ - pipeline.test.ts: 10 케이스 (기존 8 + v1.4 합계행 제외 2건)
 
 $ pnpm lint
-✖ 3 problems (0 errors, 3 warnings)
+✖ 2 problems (0 errors, 2 warnings)
   - cal-amount-list-client.tsx:223  Compilation Skipped (TanStack useReactTable)
-  - minus-analyze-client.tsx:144    'calAmountMap' assigned but never used   ← Issue #2
-  - minus-analyze-client.tsx:556    Compilation Skipped (TanStack useReactTable)
+  - minus-analyze-client.tsx:585    Compilation Skipped (TanStack useReactTable)
 ```
+
+---
+
+## 7. 보류 항목 (마이너스 외, 또는 v2 권장)
+
+| 항목 | 상태 | 메모 |
+|------|------|------|
+| 단품/복합 구분(product_master.BD) | **보류** | 메모리 `project_pending_product_master.md` — 채널별 상품코드 마스터보드 마련 후 재개 |
+| 숨김 컬럼 토글 (M/T/S/U) | v2 | 명세 §8-4 |
+| 대용량 파일 Web Worker | v2 | 현재는 메인 스레드 |
+| 인증/로그인 | v2 | 헤더 정적 이메일 |
+| 운영팀: brand 매칭 84건 (5.7%) | 외부 | export 정합성 정렬 |
