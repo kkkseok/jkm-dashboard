@@ -144,10 +144,8 @@ export function MinusAnalyzeClient() {
   } | null>(null)
   const [analyzedAt, setAnalyzedAt] = React.useState<Date | null>(null)
 
-  // cal_amount 클라이언트 메모리 Map (분석 시 fresh fetch + 셀 저장 시 갱신)
-  const [calAmountMap, setCalAmountMap] = React.useState<Map<string, number>>(
-    new Map(),
-  )
+  // cal_amount Map 은 분석 시작 시점에 한 번만 fresh fetch 해서 enrichMinusData 에 주입.
+  // 그 이후의 셀 저장은 rows state 의 각 행 extraSettlement 를 직접 갱신하므로 별도 Map 보관 불필요.
 
   // 필터/검색
   const [searchInput, setSearchInput] = React.useState("")
@@ -262,14 +260,14 @@ export function MinusAnalyzeClient() {
 
       // (2/3) cal_amount 조회 + 매핑/조인
       setStep({ kind: "running", message: "(2/3) 매핑·조인" })
-      const freshMap = await getCalAmountMap()
+      const calAmountMap = await getCalAmountMap()
 
       // (3/3) 실제 enrich (파싱+조인+계산)
       setStep({ kind: "running", message: "(3/3) 계산" })
       const result = await enrichMinusData({
         salesFile,
         revenueFile,
-        calAmountMap: freshMap,
+        calAmountMap,
       })
 
       // 행에 안정적인 _rowId 부여 (재계산/하이라이트 추적용)
@@ -280,7 +278,6 @@ export function MinusAnalyzeClient() {
 
       setRows(withIds)
       setDiagnostics(result.diagnostics)
-      setCalAmountMap(freshMap)
       setAnalyzedFileNames({
         sales: salesFile.name,
         revenue: revenueFile.name,
@@ -316,12 +313,6 @@ export function MinusAnalyzeClient() {
    * -------------------------------------------------------- */
 
   function applyCalAmountUpdate(productCode: string, extraSettlement: number) {
-    setCalAmountMap((prev) => {
-      const next = new Map(prev)
-      next.set(productCode, extraSettlement)
-      return next
-    })
-
     if (rows == null) return
 
     let updatedCount = 0
