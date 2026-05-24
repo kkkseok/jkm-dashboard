@@ -11,14 +11,19 @@
 
 import type { EnrichedRow } from './types'
 
-export type ProfitInput = Pick<EnrichedRow, 'K' | 'L' | 'R' | 'extraSettlement'>
+export type ProfitInput = Pick<EnrichedRow, 'K' | 'L' | 'Q' | 'R' | 'extraSettlement'>
 export type ProfitOutput = Pick<
   EnrichedRow,
-  'commissionRate' | 'settlementAmount' | 'totalMargin' | 'totalMarginRate'
+  | 'commissionRate'
+  | 'settlementAmount'
+  | 'totalMargin'
+  | 'totalMarginRate'
+  | 'finalProfit'
+  | 'finalProfitRate'
 >
 
 export function computeProfit(input: ProfitInput): ProfitOutput {
-  const { K, L, R, extraSettlement } = input
+  const { K, L, Q, R, extraSettlement } = input
 
   // 1. 수수료 = 1 - (L/K). K=0 또는 K/L null 이면 null.
   const commissionRate =
@@ -32,6 +37,7 @@ export function computeProfit(input: ProfitInput): ProfitOutput {
   //    매칭 실패 시 null 이지만, 4번 계산 시에는 (extraSettlement ?? 0) 으로 0 처리.
 
   // 4. 총마진액 = R + 후정산금 + (추가후정산금 ?? 0). R 또는 후정산금 null 이면 null.
+  //    사용자 확정 (2026-05-24): Q(물류비) 는 totalMargin 정의에 포함하지 않는다.
   const totalMargin =
     R != null && settlementAmount != null
       ? R + settlementAmount + (extraSettlement ?? 0)
@@ -41,10 +47,20 @@ export function computeProfit(input: ProfitInput): ProfitOutput {
   const totalMarginRate =
     totalMargin != null && L != null && L !== 0 ? totalMargin / L : null
 
+  // 6. 최종이익액 = R - Q (공급가 기준 이익액에서 물류비 차감). R 또는 Q null 이면 null.
+  //    사용자 확정 2026-05-24. totalMargin 과 독립적 보조 지표.
+  const finalProfit = R != null && Q != null ? R - Q : null
+
+  // 7. 최종이익률 = 최종이익액 / L (공급가 기준 — S 와 같은 분모).
+  const finalProfitRate =
+    finalProfit != null && L != null && L !== 0 ? finalProfit / L : null
+
   return {
     commissionRate,
     settlementAmount,
     totalMargin,
     totalMarginRate,
+    finalProfit,
+    finalProfitRate,
   }
 }

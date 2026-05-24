@@ -80,6 +80,7 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     const K = readNum(left, SALES_MAPPING.fields.K)
     const L = readNum(left, SALES_MAPPING.fields.L)
     const M = readNum(left, SALES_MAPPING.fields.M)
+    const Q = readNum(left, SALES_MAPPING.fields.Q)
     const R = readNum(left, SALES_MAPPING.fields.R)
     const S = readNum(left, SALES_MAPPING.fields.S)
     const T = readNum(left, SALES_MAPPING.fields.T)
@@ -99,10 +100,11 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     }
     if (extraSettlement == null) missingExtraCount++
 
-    // 계산 5개
-    const profit = computeProfit({ K, L, R, extraSettlement })
+    // 계산 7개 (수수료/후정산/총마진액/총마진율/최종이익액/최종이익률)
+    const profit = computeProfit({ K, L, Q, R, extraSettlement })
 
-    // 일부 계산이 null 인 행 카운트
+    // 일부 계산이 null 인 행 카운트 (기존 4개 컬럼 기준 유지 — finalProfit 계열은
+    // Q=null 만으로도 null 이 자주 나올 수 있어 별도 카운트 미적용)
     if (
       profit.commissionRate == null ||
       profit.settlementAmount == null ||
@@ -118,6 +120,7 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
       K,
       L,
       M,
+      Q,
       R,
       S,
       T,

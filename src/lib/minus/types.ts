@@ -22,6 +22,7 @@ export type EnrichedRow = {
   K: number | null // 매출액
   L: number | null // 공급가
   M: number | null // 원가
+  Q: number | null // 물류비
   R: number | null // 이익액(공급가)
   S: number | null // 이익률(공급가)
   T: number | null // 이익액(판매가)
@@ -34,11 +35,15 @@ export type EnrichedRow = {
   // 룩업 (cal_amount, 매칭 실패 시 null)
   extraSettlement: number | null // null = 매칭 실패, number = 등록됨(0 포함)
 
-  // 계산 (5개) - profit-calc 스킬 수식 적용
+  // 계산 (7개) - profit-calc 스킬 수식 적용
   commissionRate: number | null // 1 - L/K
   settlementAmount: number | null // K * (commissionRate / 2)
-  totalMargin: number | null // R + settlementAmount + (extraSettlement ?? 0)
+  totalMargin: number | null // R + settlementAmount + (extraSettlement ?? 0). Q와 무관.
   totalMarginRate: number | null // totalMargin / L
+  /** 최종이익액 = R - Q (물류비 차감). 사용자 확정 2026-05-24. */
+  finalProfit: number | null
+  /** 최종이익률 = finalProfit / L (공급가 기준, S 와 같은 분모). */
+  finalProfitRate: number | null
 }
 
 export type PipelineDiagnostics = {

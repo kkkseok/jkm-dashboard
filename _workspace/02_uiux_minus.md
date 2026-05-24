@@ -1,6 +1,8 @@
 # 마이너스 매출이익률 — UI/UX 명세
 
 > 작성: 2026-05-22 / 작성자: `uiux-designer` 에이전트
+> v1.1 (2026-05-24): §5(관리 페이지)를 append-only 단순화에 맞춰 정정. `cal_amount` 스키마가 (id, productCode, extraSettlement, createdAt) 4필드로 축소, 수정 액션 폐기, 정렬은 id DESC.
+> v1.2 (2026-05-24): 표시 컬럼 12 → 15. **물류비(Q)**, **최종이익액(R−Q)**, **최종이익률((R−Q)/L)** 3개 추가. totalMargin 정의는 그대로(Q 무관). 사용자 확정 — `profit-calc/skill.md` 동시 갱신.
 > 입력: `01_requirements_minus.md`, `profit-calc/skill.md`, `excel-mapping/skill.md`, `ux-patterns/skill.md`, `shadcn-patterns/skill.md`
 > 대상 구현자: `next-builder`
 
@@ -146,14 +148,16 @@
 │             │  └──────────────────────────────────────────────────────────┘  │
 │             │                                                                │
 │             │  ┌─ 결과 테이블 (가로 스크롤) ──────────────────────────────┐  │
-│             │  │ 매출일 ▲│주문번호│상품코드│상품명│매출액│공급가│이익액│수수료│후정산│추가⚡│총마진│총마진율│  │
-│             │  │ 5/22   │ A001   │ P-123  │…    │1,000│  900│  100│10.0%│   50│    0 │  150│ 16.7%│  │ (등록됨, 호버 시 ✏️)
-│             │  │ 5/22   │ A002   │ P-124  │…    │  500│  550│  -50│-10.0│  -25│   30 │  -45│ -8.2%│  │ (등록됨/음수=red)
+│             │  │ 매출일 ▲│주문번호│상품코드│상품명│매출액│공급가│이익액│물류비│최종이익액│최종이익률│수수료│후정산│추가⚡│총마진│총마진율│  │
+│             │  │ 5/22   │ A001   │ P-123  │…    │1,000│  900│  100│10.0%│   50│    0 │  150│ 16.7%│  │ (이력 있음, 호버 시 ✏️)
+│             │  │ 5/22   │ A002   │ P-124  │…    │  500│  550│  -50│-10.0│  -25│   30 │  -45│ -8.2%│  │ (이력 있음/음수=red)
 │             │  │ 5/22   │ A003   │ P-125  │…    │  800│  720│   80│10.0%│   40│ - ➕ │   - │   -  │  │ (매칭 실패=➕ 상시)
 │             │  │ …                                                          │  │
 │             │  └──────────────────────────────────────────────────────────┘  │
-│             │  ※ "추가" 컬럼 셀: cal_amount 매칭 실패("-") → ➕ 상시. 등록된 행(값 0 포함) → 호버 시 ✏️.│
-│             │     클릭 = 입력 Dialog. 저장 시 자동 일괄 재계산(별도 버튼 없음)│
+│             │  ※ "추가" 컬럼 셀: cal_amount 매칭 실패("-") → ➕ 상시. 이력  │
+│             │     있음(값 0 포함) → 호버 시 ✏️. **두 경우 모두 같은 동작**: │
+│             │     클릭 = 공용 Dialog 열림 → 저장 = append-only INSERT (새  │
+│             │     이력 row) → 동일 productCode 모든 행 자동 재계산.          │
 │             │  표시 12,345행 중 1–100  [< 이전] [1][2]…[124] [다음 >]        │
 └─────────────┴────────────────────────────────────────────────────────────────┘
 ```
@@ -175,8 +179,8 @@
 | 누락 필터 chip | `Badge` (제거 가능) | "추가후정산금 누락" 카드 클릭 시 chip "누락 행만 ×" 표시. X로 해제 |
 | 적용 필터 chip | `Badge` (제거 가능) | 검색어 chip + X. `ux-patterns` 6번 |
 | 결과 테이블 | `Table`, `TableHeader`, `TableHead`, `TableBody`, `TableRow`, `TableCell` + TanStack | 정렬 가능 헤더(▲▼). 가로 스크롤 wrapper `overflow-x-auto`. **"추가후정산금" 셀(`extraSettlement`)은 `role="button" tabIndex={0}` 으로 만들고 클릭/Enter/Space 시 Dialog 열림** (셀 자체가 인터랙티브) |
-| 추가후정산금 셀 (인터랙티브) | custom `<TableCell>` + `Button variant="ghost"` 형태 | **매칭 실패 행 (cal_amount 미등록)** → 셀 표기 "-" + `cursor-pointer hover:bg-accent`, 우상단에 작은 `Plus` 아이콘(`lucide-react`) 상시 노출 + Dialog 열면 `mode="create"`. **등록된 행 (값 0 포함)** → 호버 시에만 `Pencil` 아이콘 슬쩍 + Dialog 열면 `mode="edit"`. `aria-label`은 mode에 따라 "추가후정산금 등록 (상품 X)" / "추가후정산금 수정 (상품 X)" |
-| **공용 cal_amount 입력 Dialog** | `Dialog` + `Form` (§5와 동일 컴포넌트 재사용) | **분리된 공용 컴포넌트** 권장 경로: `src/components/cal-amount-form-dialog.tsx`. §5(관리 페이지)와 §4(분석 페이지) 양쪽에서 import. props로 `defaultValues`(productCode 자동주입, productName readonly 표시), `mode: "create" | "edit"`, `onSaved(updated)` 콜백 받음 |
+| 추가후정산금 셀 (인터랙티브) | custom `<TableCell>` + `Button variant="ghost"` 형태 | **매칭 실패 행 (cal_amount 이력 없음)** → 셀 표기 "-" + `cursor-pointer hover:bg-accent`, 우상단에 작은 `Plus` 아이콘(`lucide-react`) **상시 노출** (mode 의미 아님, 시각적 affordance 일 뿐). **이력 있는 행 (값 0 포함)** → 호버 시에만 `Pencil` 아이콘 슬쩍. **두 경우 모두 동작은 동일**: 클릭 = 공용 Dialog 열림 → 저장 = `appendCalAmount()` 호출 (append-only INSERT, 새 이력 row). `aria-label`은 시각 분기를 따름 — 매칭 실패: "후정산금 추가 (상품 {productCode})", 이력 있음: "후정산금 새 이력 추가 (상품 {productCode}, 현재 winner {value}원)" |
+| **공용 cal_amount 입력 Dialog** | `Dialog` + `Form` (§5와 동일 컴포넌트 재사용) | `src/components/cal-amount-form-dialog.tsx` 에 구현 완료. §5(관리 페이지)와 §4(분석 페이지) 양쪽에서 import. **append-only 단일 동작 — mode 구분 없음.** 제목은 항상 "후정산금 추가" (분석 페이지에서도 동일 — 컬럼 컨텍스트로 사용자가 인지). Props: `open`, `onOpenChange`, `defaultValues?: { productCode?, extraSettlement? }`, `lockProductCode?: boolean` (분석 페이지에서 `true` — productCode 자동주입 + readonly), `onSaved?: ({ productCode, extraSettlement }) => void` |
 | 페이지네이션 | `Button` × N (TanStack pagination) | 100행 단위. 표시 영역 텍스트 포함 |
 | 토스트 (성공/실패) | `sonner` `Toaster` + `toast()` | "분석 완료 (12,345행)" / "CSV 저장됨" / "파싱 실패" / "저장됨 — N개 행 재계산" |
 | 재업로드 확인 | `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogFooter` | "이전 결과를 덮어쓰시겠습니까?" (`ux-patterns` 5번) |
@@ -198,9 +202,12 @@
 | 매출액 | `K` | `sales_status_basic.K` | 우측 | `ko-KR` 천단위 | red | 표시 |
 | 공급가 | `L` | `sales_status_basic.L` | 우측 | `ko-KR` 천단위 | red | 표시 |
 | 이익액 | `R` | `sales_status_basic.R` | 우측 | `ko-KR` 천단위 | red | 표시 |
+| 물류비 | `Q` | `sales_status_basic.Q` | 우측 | `ko-KR` 천단위 | red | 표시 (v1.2) |
+| 최종이익액 | `finalProfit` | **계산** `R - Q` | 우측 | `ko-KR` 천단위 | red | 표시 (v1.2). totalMargin 과 독립 보조 지표 |
+| 최종이익률 | `finalProfitRate` | **계산** `(R - Q) / L` | 우측 | `xx.x%` | red | 표시 (v1.2). 공급가 기준(분모 L) |
 | 수수료 | `commissionRate` | **계산** `1 - L/K` | 우측 | `xx.x%` | red | 표시 |
 | 후정산금 | `settlementAmount` | **계산** `K × (commissionRate/2)` | 우측 | `ko-KR` 천단위 | red | 표시 |
-| 추가후정산금 | `extraSettlement` | `cal_amount` 룩업 (매칭 실패 시 0으로 계산하되 UI엔 "-" 표기) | 우측 | `ko-KR` 천단위 | red | 표시. **셀 자체가 클릭 가능 (cal_amount 입력 진입점). 매칭 실패 시 ➕ 상시 노출(create), 등록된 행(값 0 포함) 시 호버 시 ✏️ 아이콘(edit). 클릭=Dialog → 저장 시 동일 productCode 모든 행 자동 재계산** |
+| 추가후정산금 | `extraSettlement` | `cal_amount` 룩업 (매칭 실패 시 0으로 계산하되 UI엔 "-" 표기) | 우측 | `ko-KR` 천단위 | red | 표시. **셀 자체가 클릭 가능 (cal_amount 입력 진입점). 매칭 실패 → ➕ 상시 노출, 이력 있음 → 호버 시 ✏️ (시각 분기만, 동작은 동일). 클릭 = Dialog → 저장 시 append-only INSERT (새 이력) → 동일 productCode 모든 행 자동 재계산** |
 | 총마진액 | `totalMargin` | **계산** `R + 후정산금 + 추가후정산금` | 우측 | `ko-KR` 천단위 | red | 표시 |
 | 총마진율 | `totalMarginRate` | **계산** `totalMargin / L` | 우측 | `xx.x%` | red | 표시 |
 | 원가 | `M` | `sales_status_basic.M` | 우측 | `ko-KR` 천단위 | red | **숨김(토글로 표시 가능 — v2)** |
@@ -258,19 +265,17 @@
 1. 사용자가 KPI 영역의 **"추가후정산금 누락 87건"** 카드를 클릭(또는 Tab 후 Enter). "누락" = 매칭 실패만.
 2. 누락 필터 ON → 결과 테이블이 87행(매칭 실패 행만) 표시. 필터 chip "누락 행만 ×"가 검색 chip 라인에 추가됨.
 3. 사용자가 첫 행의 **"추가후정산금" 셀(값 "-", ➕ 아이콘 표시)** 을 클릭(또는 셀에 Tab 후 Enter/Space).
-4. **공용 cal_amount 입력 Dialog** 열림 (제목 "추가후정산금 추가"):
-   - `productCode` 자동 입력 (`P-125`), readonly
-   - `productName` 자동 입력 (`상품 G — 보조 정보`), readonly
-   - `extraSettlement`: 빈 칸 (또는 0), 자동 포커스
-   - `memo`: 빈 칸
+4. **공용 cal_amount 입력 Dialog** 열림 (제목 항상 "후정산금 추가" — 셀 컨텍스트로 사용자가 인지):
+   - `productCode` 자동 입력 (`P-125`), readonly (`lockProductCode=true`)
+   - `extraSettlement`: 빈 칸, 자동 포커스
 5. 사용자가 `extraSettlement = 1500` 입력 → "저장" 클릭.
-6. 버튼이 "저장 중…" + `disabled`. Server Action `upsertCalAmount({ productCode: "P-125", amount: 1500, … })` 호출 → DB upsert.
-7. 클라이언트 메모리의 `calAmountMap`에 `{ "P-125": 1500 }` set/update.
+6. 버튼이 "저장 중…" + `disabled`. Server Action `appendCalAmount({ productCode: "P-125", extraSettlement: 1500 })` 호출 → DB INSERT (append-only).
+7. `onSaved` 콜백으로 받은 `{ productCode, extraSettlement }` 를 클라이언트 메모리 `calAmountMap` 에 set (같은 productCode 가 이미 있으면 새 값으로 덮어씀 — append-only DB 의 "최신 winner" 정책과 동일).
 8. **클라이언트가 자동으로 일괄 재계산**: 결과 테이블에서 `productCode === "P-125"`인 모든 행(예: 3행)의 `extraSettlement = 1500` 갱신 + `totalMargin = R + 후정산금 + 1500` + `totalMarginRate = totalMargin / L` 재계산 (`profit-calc/skill.md` 수식 적용).
 9. 갱신된 3개 행은 `bg-blue-50` 1초 하이라이트 후 정상 색으로 fade-out.
 10. `toast.success("저장됨 — 3개 행 재계산")` 표시.
 11. Dialog 자동 닫힘. KPI "추가후정산금 누락" 카드 숫자가 `87 → 84` 즉시 갱신.
-12. 사용자가 값이 있는 행(`P-002`, 추가후정산금 = 30)의 셀에 호버 → ✏️ 아이콘 슬쩍 노출. 클릭하면 **수정 모드** Dialog가 기존 값(30) 채워진 채로 열림. 이후 흐름 동일.
+12. 사용자가 이력 있는 행(`P-002`, 현재 winner 추가후정산금 = 30)의 셀에 호버 → ✏️ 아이콘 슬쩍 노출. 클릭하면 동일한 Dialog 가 열린다 (제목 "후정산금 추가"). **기존 값은 자동 채우지 않는다** — 새 이력을 추가하는 동작이므로 `extraSettlement` 입력은 빈 칸으로 시작. 사용자가 새 값(예: 50)을 입력 → 저장 → 같은 흐름으로 `P-002` 행 재계산되며 winner 가 30 → 50 으로 바뀜. 관리 페이지에서는 두 이력 모두 보존됨.
 13. 별도의 "재계산" 버튼은 화면 어디에도 없다.
 
 **예외 흐름 (시나리오 5-실패): Server Action 에러**
@@ -285,10 +290,10 @@
 - **Tab 순서**: 사이드바 → 헤더 액션 → 업로드 슬롯1 → 슬롯2 → 분석 시작 버튼 → **KPI 카드 5개(클릭 가능한 "추가후정산금 누락" 포함, Tab 도달)** → 검색 입력 → 마이너스 필터(비활성, skip) → 누락 필터 chip(있을 때) → 테이블 헤더(정렬) → 테이블 본문의 **"추가후정산금" 셀(셀마다 Tab 도달, Enter/Space로 Dialog 열림)** → 페이지네이션 → CSV 다운로드.
 - **드래그앤드롭 대안**: 슬롯 내부 `Button("파일 선택")`이 항상 존재해 키보드 사용자 접근 가능. `Input type="file"`은 시각적으로 숨기되 `sr-only`로 유지하고 `Button`이 label로 감싸 활성.
 - **테이블 정렬**: `TableHead`에 `role="button"` + `tabIndex={0}` + `Enter`/`Space`로 정렬 토글. 정렬 방향은 `aria-sort="ascending|descending|none"`.
-- **추가후정산금 셀**: `role="button"` + `tabIndex={0}` + `Enter`/`Space`로 Dialog 열림. `aria-label="추가후정산금 입력 (상품 {productCode})"` (값이 있을 때는 "추가후정산금 수정 (상품 {productCode}, 현재 {value}원)"). 셀에 포커스 시 시각적 outline(`focus-visible:ring-2 ring-ring`) 명시.
+- **추가후정산금 셀**: `role="button"` + `tabIndex={0}` + `Enter`/`Space`로 Dialog 열림. `aria-label` 은 시각 분기를 따름 — 매칭 실패: "후정산금 추가 (상품 {productCode})", 이력 있음: "후정산금 새 이력 추가 (상품 {productCode}, 현재 winner {value}원)". 두 경우 모두 클릭 = append-only INSERT. 셀에 포커스 시 시각적 outline(`focus-visible:ring-2 ring-ring`) 명시.
 - **"추가후정산금 누락" KPI 카드**: `role="button"` + `tabIndex={0}` + `Enter`로 활성. `aria-label="추가후정산금 누락 행만 보기 (현재 {N}건)"`. 필터 ON일 때 `aria-pressed="true"`.
 - **필터 chip "누락 행만"**: chip 내 X 버튼 `aria-label="누락 행만 필터 해제"`.
-- **공용 cal_amount Dialog**: 열리면 `extraSettlement` 입력에 자동 포커스. `Esc`로 닫힘. `Enter`로 submit. `productCode`/`productName`이 readonly임을 `aria-readonly="true"`로 명시.
+- **공용 cal_amount Dialog**: 분석 페이지에서 열릴 때(`lockProductCode=true`)는 `extraSettlement` 입력에 자동 포커스, `productCode` 는 readonly (`aria-readonly="true"`). 관리 페이지에서 열릴 때는 `productCode` 입력에 자동 포커스, readonly 아님. `Esc`로 닫힘, `Enter`로 submit. productName/memo 필드는 없음.
 - **검색 입력**: `label htmlFor`로 연결. 클리어 X 버튼은 `aria-label="검색어 지우기"`.
 - **아이콘 전용 버튼**: "재업로드"의 아이콘 모드 등은 `aria-label` 필수. 셀 내부 ➕/✏️ 아이콘은 셀 자체가 button role을 가지므로 `aria-hidden="true"` 처리(중복 음성 출력 방지).
 - **`Esc`**: Dialog 닫힘. Dropdown(마이너스 필터)도 닫힘.
@@ -304,7 +309,9 @@
 
 ---
 
-## 5. 화면 B — 추가후정산금 관리 페이지 (`/cal-amount`)
+## 5. 화면 B — 후정산금 관리 페이지 (`/cal-amount`)
+
+> **append-only 모델 (v1.1)**: `cal_amount` 테이블은 (id, productCode, extraSettlement, createdAt) 4필드. UNIQUE 없음. 동일 productCode 가 여러 번 추가될 수 있고, 분석 시 **최신(가장 큰 id) 행이 winner**. 따라서 본 페이지에는 "수정" 액션이 없다 — 값을 바꾸려면 같은 productCode 로 새 행을 추가하면 된다(이전 이력은 보존). 대량 import 도 UI 가 아니라 `scripts/import-cal-amount.ts` 로 처리한다.
 
 ### 5-1. ASCII 와이어프레임
 
@@ -314,47 +321,44 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ [≡] JKM Dashboard                                          seokcess@glitzy.kr│
 ├─────────────┬────────────────────────────────────────────────────────────────┤
-│ 사이드바     │  추가후정산금 관리                          [+ 추가]            │
-│             │  상품코드별 추가후정산금을 관리합니다. 분석 시 자동 룩업됩니다.  │
+│ 사이드바     │  후정산금 관리                              [+ 추가]            │
+│             │  상품코드별 후정산금 이력입니다. 같은 상품코드가 다시 추가되면    │
+│             │  최상단(최신)의 값이 분석 시 계산에 사용됩니다.                  │
 │             │                                                                │
-│             │  ┌─ 초기 import 안내 ───────────────────────────────────────┐  │
-│             │  │  ⓘ 초기 import 완료 (2026-05-22, 1,234건)                │  │
-│             │  │  새로 import하려면 [파일 선택] (현재 데이터에 병합)       │  │
+│             │  ┌─ 안내 ───────────────────────────────────────────────────┐  │
+│             │  │  ⓘ 등록된 이력 5,282건                                    │  │
+│             │  │  최신 데이터가 최상단에 표시됩니다. 대량 import 는 별도   │  │
+│             │  │  스크립트로 진행하세요: `pnpm tsx scripts/import-cal-amo │  │
+│             │  │  unt.ts`                                                  │  │
 │             │  └──────────────────────────────────────────────────────────┘  │
 │             │                                                                │
-│             │  검색: [상품코드/상품명…… 🔍]                                  │
+│             │  검색: [상품코드…… 🔍]                                         │
 │             │                                                                │
-│             │  ┌─ 목록 테이블 ────────────────────────────────────────────┐  │
-│             │  │ 상품코드 ▲ │ 상품명         │ 추가후정산금 │ 수정일      │액션│  │
-│             │  │ P-001     │ 상품 A          │       1,500│ 2026-05-22 │✏️🗑│  │
-│             │  │ P-002     │ 상품 B          │           0│ 2026-05-22 │✏️🗑│  │
-│             │  │ P-003     │ 상품 C (긴 …)   │      -2,000│ 2026-05-22 │✏️🗑│  │
-│             │  │ …                                                          │  │
+│             │  ┌─ 목록 테이블 (id DESC = 최신 최상단) ───────────────────┐  │
+│             │  │ 상품코드      │ 후정산금 ▼  │ 추가일 ▼            │ 액션 │  │
+│             │  │ P-001         │      1,500 │ 2026-05-24 14:32   │  🗑  │  │
+│             │  │ P-002         │          0 │ 2026-05-24 14:31   │  🗑  │  │
+│             │  │ P-003         │     -2,000 │ 2026-05-24 14:30   │  🗑  │  │
+│             │  │ P-001         │      1,200 │ 2026-05-23 09:10   │  🗑  │  │ ← 같은 코드 이전 이력
+│             │  │ …                                                         │  │
 │             │  └──────────────────────────────────────────────────────────┘  │
-│             │  1,234건 중 1–100 [< 이전] [1][2]…[13] [다음 >]                │
+│             │  5,282건 중 1–100 [< 이전] [1][2]…[53] [다음 >]                │
 └─────────────┴────────────────────────────────────────────────────────────────┘
 ```
 
-**상태 2: 추가/수정 Dialog**
+**상태 2: 추가 Dialog**
 
 ```
                    ┌───────────────────────────────────────┐
-                   │ 추가후정산금 추가                   ✕  │
+                   │ 후정산금 추가                       ✕  │
                    ├───────────────────────────────────────┤
                    │ 상품코드 *                            │
                    │ [P-004                              ] │
-                   │ (필수, 중복 시 에러)                   │
+                   │ (필수, 중복 허용 — 새 이력으로 추가됨)  │
                    │                                       │
-                   │ 상품명                                │
-                   │ [상품 D                             ] │
-                   │ (선택, 검색용)                         │
-                   │                                       │
-                   │ 추가후정산금 *                         │
-                   │ [               1500] 원              │
+                   │ 후정산금 (원) *                        │
+                   │ [               1500]                 │
                    │ (정수, 음수 허용)                      │
-                   │                                       │
-                   │ 메모                                  │
-                   │ [선택 입력……                       ] │
                    │                                       │
                    ├───────────────────────────────────────┤
                    │                       [취소]  [저장]   │
@@ -367,9 +371,13 @@
                    ┌───────────────────────────────────────┐
                    │ 삭제 확인                          ✕  │
                    ├───────────────────────────────────────┤
-                   │ "P-003 (상품 C)"를 삭제하시겠습니까?    │
-                   │ 분석 시 해당 상품의 추가후정산금은 0으로│
-                   │ 처리됩니다.                            │
+                   │ "P-003" (이력 id 4521, -2,000원)을     │
+                   │ 삭제하시겠습니까?                      │
+                   │                                       │
+                   │ 같은 상품코드의 다른 이력 행은 영향이   │
+                   │ 없습니다. 이 행이 최신 값이었다면 그   │
+                   │ 다음(이전) 이력 행이 분석 시 계산에    │
+                   │ 사용됩니다.                            │
                    ├───────────────────────────────────────┤
                    │                       [취소]  [삭제]   │
                    └───────────────────────────────────────┘
@@ -379,75 +387,79 @@
 
 | 영역 | shadcn 컴포넌트 | 역할 / 주요 인터랙션 |
 |------|-----------------|-----|
-| 페이지 헤더 | `h1` + `Button` | "+ 추가" → 추가 Dialog 열림 |
-| 초기 import 안내 카드 | `Alert` (variant default) | import 완료 여부에 따라 안내문 분기. 추가 import는 `Input type="file"` + Button |
-| 검색 입력 | `Input` + 클리어 X | 300ms debounce. 상품코드·상품명 매칭 |
-| 목록 테이블 | `Table` 일가 + TanStack | 정렬 가능 헤더 (상품코드/추가후정산금/수정일). 행 클릭 = 수정 Dialog |
-| 액션 컬럼 | `Button variant="ghost" size="icon"` × 2 + `DropdownMenu` (모바일 시 통합) | 수정/삭제 아이콘. 각각 `aria-label="수정"`, `aria-label="삭제"` |
-| 추가/수정 Dialog | `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogFooter` | 추가/수정 공용 폼 (제목만 분기) |
-| 폼 본체 | **`Form` 컴포넌트 추가 필요** (react-hook-form + zod) + `Label` + `Input` + `Button` | **shadcn `form` 컴포넌트 파일은 현재 미설치. `next-builder`가 `pnpm dlx shadcn@latest add form` 실행 필요.** 의존성(`react-hook-form`, `zod`, `@hookform/resolvers`)은 미설치라면 함께 추가. |
-| 삭제 확인 Dialog | `Dialog` (동일) | "취소" / "삭제" — destructive variant |
-| 토스트 | `sonner` `toast.success` / `toast.error` | "추가됨" / "수정됨" / "삭제됨" / "중복된 상품코드입니다" |
-| 페이지네이션 | `Button` 묶음 (TanStack) | 100건 단위 |
-| 빈 상태 박스 | `div.border-dashed` | 검색 결과 0건 또는 전체 0건 분기 |
+| 페이지 헤더 | `h1` + `Button` | "+ 추가" → 공용 추가 Dialog 열림 |
+| 안내 카드 | `Alert` (variant default) | 등록 이력 카운트(0건이면 "아직 등록된 후정산금이 없습니다") + 대량 import 스크립트 안내. **UI 업로드 없음** (스크립트로만 처리) |
+| 검색 입력 | `Input` + `SearchIcon` + 클리어 X | 300ms debounce. **상품코드 부분일치만** (상품명 컬럼 없음). `aria-label="상품코드 검색"` |
+| 목록 테이블 | `Table` 일가 + TanStack | **정렬 가능 헤더는 후정산금/추가일만** (상품코드는 정렬 불가 — id DESC 가 기본 순서). `manualPagination: true` 로 서버 페이지네이션 |
+| 액션 컬럼 | `Button variant="ghost" size="icon-sm"` × 1 | **🗑 단일 아이콘** (수정 액션 없음). `aria-label="{productCode} (id {id}) 삭제"` |
+| 공용 추가 Dialog | `src/components/cal-amount-form-dialog.tsx` (§4 와 동일 컴포넌트) | `<CalAmountFormDialog open … onSaved={…} />` 형태로 import. 관리 페이지에서는 `lockProductCode` 없이 호출(자유 입력) |
+| 폼 본체 | `Form` (shadcn) + `react-hook-form` + `zod` | **이미 설치됨**: `react-hook-form`, `zod`, `@hookform/resolvers`, shadcn `form` 컴포넌트 |
+| 삭제 확인 Dialog | `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogDescription`, `DialogFooter` | 대상 행의 productCode + id + 금액 노출. "취소" outline / "삭제" destructive |
+| 토스트 | `sonner` `toast.success` / `toast.error` | "추가됨" / "삭제됨: {productCode}" / "저장 실패" / "삭제 실패: …" |
+| 페이지네이션 | `Button` 묶음 (자체 `PageNav` 컴포넌트) | 100건 단위. 좌측에 "N건 중 a–b" 표시. 이전/다음 + 윈도우(현재 페이지 ±1, 처음/끝 고정) |
+| 빈 상태 박스 | `div.border-dashed` | 전체 0건: "등록된 후정산금이 없습니다." + "+ 추가" CTA. 검색 결과 0건: "조건에 맞는 항목이 없습니다." + "검색 초기화" |
 
-### 5-3. 폼 필드 명세
+### 5-3. 폼 필드 명세 (공용 Dialog 와 동일)
+
+`src/components/cal-amount-form-dialog.tsx` 가 분석/관리 페이지 양쪽에서 공유되므로 필드 정의는 한 곳에서 관리.
 
 | 필드 | 라벨 | 컴포넌트 | 필수 | validation (zod) | 에러 메시지 (인라인, blur 시) |
 |------|------|----------|-----|------------------|---------------------------|
-| `productCode` | 상품코드 | `Input` | ✓ | `z.string().min(1).max(64).regex(/^[\w-]+$/)` + 서버에서 unique 체크 | 비어있음: "상품코드를 입력하세요" / 형식: "영문/숫자/하이픈/언더바만" / 중복: "이미 등록된 상품코드입니다" |
-| `productName` | 상품명 | `Input` | ✗ | `z.string().max(200).optional()` | 길이: "200자 이내로 입력하세요" |
-| `extraSettlement` | 추가후정산금 (원) | `Input type="number"` | ✓ | `z.coerce.number().int()` (음수 허용, 0 허용) | 비어있음: "금액을 입력하세요" / 정수 아님: "정수만 입력 가능합니다" |
-| `memo` | 메모 | `Input` (1줄) | ✗ | `z.string().max(500).optional()` | 길이: "500자 이내로 입력하세요" |
+| `productCode` | 상품코드 | `Input` (관리 페이지는 자유 입력 / 분석 페이지는 `readOnly` + `aria-readonly`) | ✓ | `z.string().trim().min(1).max(64).regex(/^[\w-]+$/)` (**unique 체크 없음 — append-only**) | 비어있음: "상품코드를 입력하세요" / 길이: "상품코드는 64자 이내로 입력하세요" / 형식: "영문/숫자/하이픈/언더바만 입력 가능합니다" |
+| `extraSettlement` | 후정산금 (원) | `Input type="number" inputMode="numeric"` | ✓ | 폼 단계는 `z.string().refine(/^-?\d+$/)`, submit 시 `Number()` 변환 → Server Action 단계는 `z.coerce.number().int()` (음수/0 허용) | 비어있음: "금액을 입력하세요" / 정수 아님: "정수만 입력 가능합니다" |
 
-- 폼 submit 중에는 `[저장]` 버튼 `disabled` + 텍스트 "저장 중…".
-- 성공 시 Dialog 자동 닫힘 + `toast.success("저장됨")` + 목록 테이블 갱신(서버 액션 후 `revalidatePath('/cal-amount')`).
-- 실패 시 Dialog 유지, 폼 상단에 `Alert variant="destructive"` 인라인.
+- 폼 submit 중에는 `[저장]` 버튼 `disabled` + 텍스트 "저장 중…", `[취소]` 버튼 `disabled`.
+- 성공 시 Dialog 자동 닫힘 + `toast.success("추가됨")` + 관리 페이지는 `router.refresh()`, 분석 페이지는 클라이언트 `calAmountMap` 갱신 + 동일 productCode 행 자동 재계산.
+- 실패 시 Dialog 유지, 폼 상단에 `Alert variant="destructive"` 인라인 + `toast.error("저장 실패")`.
 
 ### 5-4. 4상태 명세
 
 | 영역 | 빈 | 로딩 | 에러 | 성공 |
 |------|----|------|------|------|
-| **초기 import 안내** | "아직 cal_amount 데이터가 없습니다. `docs/common/cal_amount.xlsx`를 import 하거나 [+ 추가]로 직접 입력하세요" + `Button("파일 선택")` | (즉시 처리, 로딩 시 import 버튼 `disabled` + "import 중…") | `Alert variant="destructive"` 카드 내부에 표시 | "초기 import 완료 (2026-05-22, 1,234건)" + 작은 텍스트로 추가 import 안내 |
-| **목록 테이블** | 전체 0건: 점선 박스 "등록된 추가후정산금이 없습니다. [+ 추가]" CTA. 검색 결과 0건: "조건에 맞는 항목이 없습니다. 검색어를 지워보세요." + "검색 초기화" | `Skeleton` 10행 | `Alert` 테이블 자리에 | 페이지네이션 포함 테이블 |
-| **추가/수정 Dialog** | (열림 시 모든 필드 초기값. 수정 모드는 기존 값 채움) | submit 중 폼 `disabled` + 버튼 "저장 중…" | 폼 상단 `Alert` (서버 에러) + 필드별 인라인 메시지 | Dialog 자동 닫힘 + `toast.success` |
-| **삭제 Dialog** | (열림 시 대상 정보 표시) | "삭제" 버튼 `disabled` + "삭제 중…" | `toast.error("삭제 실패: …")` Dialog 유지 | Dialog 닫힘 + `toast.success("삭제됨")` |
+| **안내 카드** | "아직 등록된 후정산금이 없습니다" + 스크립트 코드 블록 (`pnpm tsx scripts/import-cal-amount.ts`) | (해당 없음 — 정적 카드) | (해당 없음) | "등록된 이력 N건" + 스크립트 안내 |
+| **목록 테이블** | 전체 0건: 점선 박스 "등록된 후정산금이 없습니다." + "+ 추가" CTA. 검색 결과 0건: "조건에 맞는 항목이 없습니다." + "검색 초기화" 버튼 | (서버 렌더링이므로 페이지 전환 중 `useTransition` 의 `isPending` 표시: 페이지네이션 영역에 "불러오는 중…" 작은 텍스트) | (server action 에러는 Next.js error.tsx 로 위임. 본 페이지 inline 에러 표시 없음) | 페이지네이션 포함된 테이블 (id DESC 정렬) |
+| **추가 Dialog** | 열림 시 모든 필드 빈 값. `productCode` 자동 포커스 | submit 중 폼 전체 `disabled` + 버튼 "저장 중…" | 폼 상단 `Alert variant="destructive"` (서버 에러) + 필드별 인라인 메시지 (zod) + `toast.error("저장 실패")` | Dialog 자동 닫힘 + `toast.success("추가됨")` + 테이블 자동 갱신 |
+| **삭제 Dialog** | 열림 시 대상 productCode + id + 금액 표시 | "삭제" 버튼 `disabled` + "삭제 중…" + "취소" 버튼 `disabled` | `toast.error("삭제 실패: …")` Dialog 유지 | Dialog 닫힘 + `toast.success("삭제됨: {productCode}")` + 테이블 자동 갱신 |
 
 ### 5-5. 인터랙션 시나리오
 
-**시나리오 1 (정상): 추가**
-1. `/cal-amount` 진입 → "+ 추가" 클릭 → Dialog 열림, 첫 필드 자동 포커스.
-2. 상품코드 입력 → 다른 필드로 이동 시 unique 체크 호출(서버 액션). 중복이면 인라인 에러 즉시 표시.
-3. 금액 입력 → "저장" 클릭 → 버튼 "저장 중…" → Dialog 닫힘 + `toast.success("추가됨: P-004")`.
-4. 테이블 자동 갱신, 새 행이 상단에 잠시 highlight(선택 — `bg-blue-50` 1초간) 후 정상.
+**시나리오 1 (정상): 새 상품 추가**
+1. `/cal-amount` 진입 → "+ 추가" 클릭 → Dialog 열림, `productCode` 입력에 자동 포커스.
+2. 상품코드 `P-004` 입력 (중복 체크 호출 없음 — append-only 라 중복 자체가 정상).
+3. 후정산금 `1500` 입력 → "저장" 클릭 → 버튼 "저장 중…" → Dialog 닫힘 + `toast.success("추가됨")`.
+4. 테이블 자동 갱신, 새 행이 최상단(가장 큰 id)에 표시됨.
 
-**시나리오 2 (정상): 수정**
-1. 테이블 행의 ✏️(수정) 버튼 클릭 → Dialog가 기존 값 채워진 상태로 열림. 제목 "추가후정산금 수정".
-2. 금액 변경 → "저장" → 토스트 + 테이블 갱신.
+**시나리오 2 (정상): 같은 상품코드 값 변경 — 새 이력 추가**
+1. 기존에 `P-001 = 1,200` 이력이 있는 상태에서 값을 `1,500` 으로 바꾸고 싶음.
+2. "+ 추가" 클릭 → Dialog 에서 `productCode = P-001`, `extraSettlement = 1500` 입력 → "저장".
+3. 테이블 최상단에 `P-001 = 1,500` 새 행 추가. 이전 `P-001 = 1,200` 행은 그대로 남아 이력으로 보존.
+4. 분석 페이지에서 다음번 분석 시 `P-001` 의 후정산금은 **최신(가장 큰 id) 행인 1,500** 으로 계산.
 
 **시나리오 3 (엣지 — 삭제 후 영향)**
-1. 행의 🗑(삭제) 클릭 → 삭제 확인 Dialog. 본문에 "분석 시 해당 상품의 추가후정산금은 0으로 처리됩니다" 명시.
-2. "삭제" 클릭 → 토스트 + 테이블에서 행 사라짐. (분석 페이지에서 다음번 분석 시부터 0으로 계산.)
+1. 행의 🗑(삭제) 클릭 → 삭제 확인 Dialog. 본문에 "같은 상품코드의 다른 이력 행은 영향 없음. 이 행이 최신이었다면 그 다음 이력 행이 분석 시 계산에 사용됨" 명시.
+2. "삭제" 클릭 → `toast.success("삭제됨: P-003")` + 테이블에서 해당 행 사라짐.
+3. 해당 productCode 의 다른 이력이 남아 있으면 그 중 가장 큰 id 행이 자동으로 winner. 이력이 하나도 없으면 분석 시 "매칭 실패"(누락) 으로 처리.
 
-**시나리오 4 (엣지 — 초기 import 충돌)**
-1. 이미 데이터가 있는 상태에서 "추가 import"로 새 파일 선택.
-2. Dialog: "기존 1,234건에 병합합니다. 동일 상품코드는 새 값으로 덮어쓰기됩니다. 계속할까요?" + `[취소][진행]`.
-3. "진행" → 로딩 → `toast.success("import 완료: 추가 50건, 갱신 12건, 변경없음 1,172건")`.
+**시나리오 4 (엣지 — 대량 import)**
+1. UI 에는 import 버튼이 없다. 대량 import 는 터미널에서 `pnpm tsx scripts/import-cal-amount.ts` 실행.
+2. 스크립트는 `docs/common/cal_amount.xlsx` 를 읽어 **역순 INSERT** (엑셀 row 1 = 가장 큰 id = 최신).
+3. 이미 데이터가 있는 환경에서 재실행하려면 사용자가 Supabase SQL Editor 에서 `TRUNCATE TABLE cal_amount RESTART IDENTITY;` 후 실행 (스크립트 자체는 truncate 하지 않음).
 
 ### 5-6. 키보드 / 접근성 메모
 
-- **Tab 순서**: 사이드바 → "+ 추가" → import 안내 영역 액션 → 검색 → 테이블 헤더 정렬 → 행 액션(수정/삭제) → 페이지네이션.
-- **테이블 행 키보드 동작**: `Enter`로 수정 Dialog 열기(행이 `tabIndex={0}`).
-- **Dialog**: 열리면 첫 입력 자동 포커스, `Esc`로 닫기, `Enter`로 submit (단, multi-line input 없으므로 안전).
-- **필수 표시**: 라벨 옆 `*` + `aria-required="true"`.
-- **에러 메시지**: `aria-describedby`로 input과 메시지 연결.
-- **삭제 버튼**: `aria-label="P-003 삭제"`처럼 컨텍스트 포함.
+- **Tab 순서**: 사이드바 → "+ 추가" → 검색 입력 → (검색어 있을 때) 검색 지우기 X → 테이블 헤더 정렬(후정산금/추가일) → 행 액션(🗑) → 페이지네이션.
+- **Dialog (공용 추가)**: 열리면 `productCode` 자동 포커스 (분석 페이지에서 `lockProductCode=true` 일 때는 `extraSettlement` 자동 포커스). `Esc` 닫기, `Enter` submit.
+- **필수 표시**: 라벨 옆 `*` + input 에 `aria-required="true"`.
+- **에러 메시지**: shadcn `FormMessage` 가 자동으로 `aria-describedby` 연결.
+- **삭제 버튼**: `aria-label="{productCode} (id {id}) 삭제"` — 같은 코드 다행이 있어도 어느 이력 행인지 명확히 알 수 있도록 id 포함.
 - **확인 Dialog의 destructive 버튼**: `variant="destructive"` (red bg) + `aria-label="삭제 확정"`.
+- **정렬 헤더**: shadcn `TableHead` + `aria-sort="ascending|descending|none"`, 클릭으로 정렬 토글.
+- **테이블 행 자체에는 키보드 동작 없음** (수정 액션이 없으므로 행 `tabIndex` 부여 안 함).
 
 ### 5-7. 반응형 동작 (관리 페이지)
 
-- `≥ md`: 표 정상 표시. 액션 컬럼은 아이콘 2개.
-- `< md`: 표 가로 스크롤. 액션 컬럼은 `DropdownMenu` 단일 ⋮ 버튼으로 통합("수정"/"삭제" 메뉴). Dialog는 전체 폭(`max-w-md`) 유지.
+- `≥ md`: 표 정상 표시. 액션 컬럼은 🗑 단일 아이콘.
+- `< md`: 표 가로 스크롤. 액션 컬럼도 단일 아이콘이므로 DropdownMenu 통합 불필요 — 모바일에서도 🗑 그대로 표시. Dialog 는 `max-w-md` 로 유지.
 
 ---
 
@@ -539,7 +551,8 @@
 2. **매출일 컬럼의 Excel letter** — `01_requirements_minus.md` "표시 필수 컬럼"에 매출일은 있으나 `excel-mapping/skill.md`·`profit-calc/skill.md`의 K~U·AE에 매출일 letter가 누락. 본 명세는 "향후 letter 확정" 메모로 두고 표시 라벨/포맷만 정의.
 3. **CSV 파일명 규칙** — `minus_YYYY-MM-DD.csv` 가정. 사용자 확인 필요 시 변경.
 4. **숨김 컬럼(M/T/S/U) 토글 UI** — 본 단계(v1)는 4컬럼 숨김. 향후 `DropdownMenu` 기반 컬럼 토글(`TanStack column visibility`)을 v2에 추가 권장.
-5. **shadcn `form` 컴포넌트 미설치** — 관리 페이지 폼 구현 전에 `pnpm dlx shadcn@latest add form` + `pnpm add react-hook-form zod @hookform/resolvers` 필요. 명세는 그대로 두고 next-builder가 설치 후 진행.
+5. ~~shadcn `form` 컴포넌트 미설치~~ — **v1.1 해결**: 설치 완료 (`shadcn add form` + `react-hook-form`, `zod`, `@hookform/resolvers`).
 6. **인증/로그인** — 사내 도구라는 비기능 요건만 있고 인증 명세는 없음. 본 명세는 헤더 우측에 사용자 이메일을 정적 표시. 인증 도입 시 별도 명세 추가.
-7. **초기 import 트리거** — `cal_amount.xlsx` 초기 import를 웹 UI에서 수행할지, 별도 스크립트로 1회 실행할지 미정. 본 명세는 웹 UI에서도 수행 가능하도록 "초기 import 안내" 영역에 파일 선택 버튼을 둠.
+7. ~~초기 import 트리거~~ — **v1.1 결정**: UI 업로드는 v1 미제공. 대량 import 는 `pnpm tsx scripts/import-cal-amount.ts` 로 처리 (역순 INSERT 로 엑셀 row 1 이 최신 id 가 되도록). 재실행 시 사용자가 Supabase 에서 `TRUNCATE` 후 실행.
 8. **"음수 행 전체 배경" 시각화** — 디자인 토큰에 `bg-red-50`을 정의해두었으나 판정 기준 미확정이라 v1에서는 미적용. 셀 값 음수에만 `text-red-600` 적용.
+9. ~~§4(분석) 의 추가후정산금 셀 인터랙션 표기~~ — **v1.1 정리 완료**: §4-1 와이어프레임 주석, §4-2 컴포넌트 명세, §4-3 매핑표, §4-5 시나리오 5, §4-6 키보드 메모 모두 append-only 단일 동작(`appendCalAmount`)으로 통일. ➕/✏️ 는 시각적 affordance 분기만 유지(매칭 실패 vs 이력 있음). 공용 Dialog 는 항상 같은 컴포넌트(`src/components/cal-amount-form-dialog.tsx`)·같은 제목("후정산금 추가"), 분석 페이지에서는 `lockProductCode=true` props 로 productCode readonly 처리. 이력 있는 행을 클릭해도 `extraSettlement` 는 빈 칸으로 시작 (새 이력을 추가하는 동작).
