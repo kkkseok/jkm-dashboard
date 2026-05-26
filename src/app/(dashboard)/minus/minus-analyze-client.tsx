@@ -38,6 +38,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Table,
   TableBody,
@@ -68,12 +82,61 @@ import { cn } from "@/lib/utils"
 const PAGE_SIZE = 100
 const koInt = new Intl.NumberFormat("ko-KR")
 
+/**
+ * localStorage 키 (v1).
+ * 향후 EnrichedRow 구조가 깨지는 변경이 생기면 v2 로 바꿔 구버전 캐시를 자동 무력화한다.
+ */
+const STORAGE_KEY = "minus:lastAnalysis-v1"
+
+type PersistedAnalysis = {
+  v: 1
+  rows: RowWithId[]
+  diagnostics: PipelineDiagnostics
+  analyzedFileNames: { sales: string; revenue: string }
+  analyzedAt: string // ISO
+}
+
+function loadPersisted(): PersistedAnalysis | null {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as PersistedAnalysis
+    if (parsed.v !== 1) return null
+    if (!Array.isArray(parsed.rows) || !parsed.diagnostics) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function savePersisted(value: PersistedAnalysis): { ok: true } | { ok: false; reason: string } {
+  if (typeof window === "undefined") return { ok: false, reason: "no-window" }
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value))
+    return { ok: true }
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e)
+    return { ok: false, reason }
+  }
+}
+
+function clearPersisted(): void {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.removeItem(STORAGE_KEY)
+  } catch {
+    // ignore
+  }
+}
+
 /** 한글 깨짐 방지 — UTF-8 BOM */
 const UTF8_BOM = "﻿"
 
 /** 명세 §4-3 "기본 가시성: 표시" 16개 컬럼 (v1.3 — 브랜드명 추가) — CSV 도 이 순서/라벨을 따른다. */
 const CSV_HEADERS: ReadonlyArray<readonly [keyof EnrichedRow, string]> = [
   ["salesDate", "매출일"],
+  ["salesType", "매출구분"],
   ["onlineOrderNo", "온라인주문번호"],
   ["productCode", "상품코드"],
   ["productName", "상품명"],
@@ -179,6 +242,11 @@ export function MinusAnalyzeClient() {
     revenue: string
   } | null>(null)
   const [analyzedAt, setAnalyzedAt] = React.useState<Date | null>(null)
+  /**
+   * localStorage 에서 복원된 결과인지 여부. true 일 때만 "재업로드" 버튼이 노출된다.
+   * (복원된 상태에서는 업로드 슬롯이 비어 있으므로 일반 흐름과 분리해서 UX 안내)
+   */
+  const [restoredFromStorage, setRestoredFromStorage] = React.useState(false)
 
   // cal_amount Map 은 분석 시작 시점에 한 번만 fresh fetch 해서 enrichMinusData 에 주입.
   // 그 이후의 셀 저장은 rows state 의 각 행 extraSettlement 를 직접 갱신하므로 별도 Map 보관 불필요.
@@ -198,6 +266,11 @@ export function MinusAnalyzeClient() {
   const [rateMode, setRateMode] = React.useState<"inside" | "outside">("inside")
   /** 총마진율 계산 불가 (null) 행만 보기 */
   const [onlyComputeNull, setOnlyComputeNull] = React.useState(false)
+  /** 매출구분 다중 선택 필터. 비어 있으면 전체 통과. */
+  const [selectedSalesTypes, setSelectedSalesTypes] = React.useState<Set<string>>(
+    new Set(),
+  )
+  const [salesTypePopoverOpen, setSalesTypePopoverOpen] = React.useState(false)
 
   // 검색 debounce 300ms
   React.useEffect(() => {
@@ -206,6 +279,42 @@ export function MinusAnalyzeClient() {
     }, 300)
     return () => window.clearTimeout(t)
   }, [searchInput])
+
+  // 마운트 시 localStorage 에서 마지막 분석 1건 복원
+  React.useEffect(() => {
+    const p = loadPersisted()
+    if (!p) return
+    setRows(p.rows)
+    setDiagnostics(p.diagnostics)
+    setAnalyzedFileNames(p.analyzedFileNames)
+    setAnalyzedAt(new Date(p.analyzedAt))
+    setStep({ kind: "done" })
+    setRestoredFromStorage(true)
+  }, [])
+
+  // rows / diagnostics / analyzedAt 변경 시 localStorage 동기화 (300ms debounce)
+  // - 분석 완료, 셀 편집(applyCalAmountUpdate) 양쪽 모두 이 effect 로 흡수
+  // - 복원된 상태에서 셀 편집이 일어나면 즉시 갱신되어 마지막 1건이 항상 최신
+  React.useEffect(() => {
+    if (rows == null || diagnostics == null || analyzedFileNames == null || analyzedAt == null) {
+      return
+    }
+    const t = window.setTimeout(() => {
+      const result = savePersisted({
+        v: 1,
+        rows,
+        diagnostics,
+        analyzedFileNames,
+        analyzedAt: analyzedAt.toISOString(),
+      })
+      if (!result.ok) {
+        toast.warning(
+          "분석 결과 자동 저장 실패 (브라우저 저장 용량 초과 가능). 현재 화면은 정상이지만, 다음 방문 시 복원되지 않습니다.",
+        )
+      }
+    }, 300)
+    return () => window.clearTimeout(t)
+  }, [rows, diagnostics, analyzedFileNames, analyzedAt])
 
   // 셀 클릭으로 열리는 cal_amount 입력 Dialog 상태
   const [cellDialog, setCellDialog] = React.useState<{
@@ -281,6 +390,8 @@ export function MinusAnalyzeClient() {
   function confirmReupload() {
     if (!reuploadPending) return
     // 이전 결과 초기화 + 새 파일 세팅
+    clearPersisted()
+    setRestoredFromStorage(false)
     setRows(null)
     setDiagnostics(null)
     setAnalyzedFileNames(null)
@@ -289,6 +400,7 @@ export function MinusAnalyzeClient() {
     setSearchInput("")
     setSearchTerm("")
     setOnlyMissing(false)
+    setSelectedSalesTypes(new Set())
     setSlotFile(reuploadPending.slot, reuploadPending.file)
     setReuploadPending(null)
   }
@@ -331,6 +443,7 @@ export function MinusAnalyzeClient() {
       })
       setAnalyzedAt(new Date())
       setStep({ kind: "done" })
+      setRestoredFromStorage(false)
       toast.success(`분석 완료 (${koInt.format(withIds.length)}행)`)
     } catch (err) {
       const message =
@@ -341,6 +454,8 @@ export function MinusAnalyzeClient() {
   }
 
   function resetAll() {
+    clearPersisted()
+    setRestoredFromStorage(false)
     setSalesFile(null)
     setRevenueFile(null)
     setSalesError(null)
@@ -357,6 +472,7 @@ export function MinusAnalyzeClient() {
     setRateMinInput("-3")
     setRateMaxInput("3")
     setRateMode("inside")
+    setSelectedSalesTypes(new Set())
   }
 
   /* --------------------------------------------------------
@@ -436,6 +552,10 @@ export function MinusAnalyzeClient() {
     return rows.filter((r) => {
       if (onlyMissing && r.extraSettlement != null) return false
       if (onlyComputeNull && r.totalMarginRate != null) return false
+      if (selectedSalesTypes.size > 0) {
+        if (r.salesType == null || !selectedSalesTypes.has(r.salesType))
+          return false
+      }
 
       // 총마진율 범위 필터. null 행은 양쪽 모드에서 제외 (계산 불가는 별도 토글)
       if (rangeActive) {
@@ -454,6 +574,7 @@ export function MinusAnalyzeClient() {
         r.productCode?.toLowerCase() ?? "",
         r.onlineOrderNo?.toLowerCase() ?? "",
         r.brandName?.toLowerCase() ?? "",
+        r.salesType?.toLowerCase() ?? "",
       ].join("")
       return hay.includes(term)
     })
@@ -466,7 +587,21 @@ export function MinusAnalyzeClient() {
     rateMin,
     rateMax,
     rateMode,
+    selectedSalesTypes,
   ])
+
+  /** 현재 분석 결과에서 매출구분 unique 값과 행 수 — 필터 popover 에 노출. */
+  const salesTypeOptions = React.useMemo(() => {
+    if (!rows) return [] as Array<{ value: string; count: number }>
+    const counts = new Map<string, number>()
+    for (const r of rows) {
+      if (r.salesType == null) continue
+      counts.set(r.salesType, (counts.get(r.salesType) ?? 0) + 1)
+    }
+    return Array.from(counts.entries())
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => b.count - a.count)
+  }, [rows])
 
   /* --------------------------------------------------------
    * KPI
@@ -517,6 +652,22 @@ export function MinusAnalyzeClient() {
             {row.original.salesDate ?? "-"}
           </span>
         ),
+      },
+      {
+        accessorKey: "salesType",
+        header: "매출구분",
+        enableSorting: true,
+        cell: ({ row }) => {
+          const v = row.original.salesType
+          return (
+            <span
+              className="block max-w-[14rem] truncate"
+              title={v ?? undefined}
+            >
+              {v ?? "-"}
+            </span>
+          )
+        },
       },
       {
         accessorKey: "onlineOrderNo",
@@ -696,6 +847,7 @@ export function MinusAnalyzeClient() {
     rateMin,
     rateMax,
     rateMode,
+    selectedSalesTypes,
     table,
   ])
 
@@ -783,6 +935,11 @@ export function MinusAnalyzeClient() {
               분석 완료: {analyzedFileNames.sales} +{" "}
               {analyzedFileNames.revenue} (
               {formatDateTime(analyzedAt)})
+              {restoredFromStorage && (
+                <span className="ml-2 text-foreground/70">
+                  · 이전 분석 결과 복원됨
+                </span>
+              )}
             </p>
           )}
         </div>
@@ -951,7 +1108,7 @@ export function MinusAnalyzeClient() {
                 <Input
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="상품명/코드/주문번호/브랜드 검색"
+                  placeholder="상품명/코드/주문번호/브랜드/매출구분 검색"
                   className="pl-8 pr-8"
                   aria-label="결과 테이블 검색"
                 />
@@ -1036,6 +1193,14 @@ export function MinusAnalyzeClient() {
                   </Button>
                 )}
               </div>
+
+              <SalesTypeFilter
+                options={salesTypeOptions}
+                selected={selectedSalesTypes}
+                onChange={setSelectedSalesTypes}
+                open={salesTypePopoverOpen}
+                onOpenChange={setSalesTypePopoverOpen}
+              />
             </div>
 
             {rateRangeInvalid && (
@@ -1047,7 +1212,8 @@ export function MinusAnalyzeClient() {
             {(searchTerm.length > 0 ||
               onlyMissing ||
               onlyComputeNull ||
-              rangeActive) && (
+              rangeActive ||
+              selectedSalesTypes.size > 0) && (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-muted-foreground">
                   적용된 필터:
@@ -1108,6 +1274,19 @@ export function MinusAnalyzeClient() {
                       type="button"
                       onClick={() => setOnlyComputeNull(false)}
                       aria-label="계산 불가만 필터 해제"
+                      className="ml-1 inline-flex size-4 items-center justify-center rounded hover:bg-foreground/10"
+                    >
+                      <XIcon className="size-3" />
+                    </button>
+                  </Badge>
+                )}
+                {selectedSalesTypes.size > 0 && (
+                  <Badge variant="secondary" className="gap-1 pr-1">
+                    매출구분 {selectedSalesTypes.size}개 선택
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSalesTypes(new Set())}
+                      aria-label="매출구분 필터 해제"
                       className="ml-1 inline-flex size-4 items-center justify-center rounded hover:bg-foreground/10"
                     >
                       <XIcon className="size-3" />
@@ -1303,6 +1482,120 @@ export function MinusAnalyzeClient() {
 /* ============================================================
  * 서브 컴포넌트
  * ============================================================ */
+
+function SalesTypeFilter({
+  options,
+  selected,
+  onChange,
+  open,
+  onOpenChange,
+}: {
+  options: Array<{ value: string; count: number }>
+  selected: Set<string>
+  onChange: (next: Set<string>) => void
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const total = options.length
+  const selectedCount = selected.size
+  const buttonLabel =
+    selectedCount === 0
+      ? `매출구분 전체 (${total})`
+      : `매출구분 ${selectedCount}/${total}`
+
+  function toggle(value: string) {
+    const next = new Set(selected)
+    if (next.has(value)) next.delete(value)
+    else next.add(value)
+    onChange(next)
+  }
+
+  function selectAll() {
+    onChange(new Set(options.map((o) => o.value)))
+  }
+  function clearAll() {
+    onChange(new Set())
+  }
+
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger
+        render={
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label={`매출구분 필터 — 현재 ${selectedCount === 0 ? "전체" : `${selectedCount}개 선택`}`}
+          >
+            매출구분
+            {selectedCount > 0 && (
+              <Badge variant="secondary" className="ml-2">
+                {selectedCount}
+              </Badge>
+            )}
+          </Button>
+        }
+      />
+      <PopoverContent className="w-80 p-0" align="start">
+        <Command shouldFilter>
+          <CommandInput
+            placeholder={`${total}개 매출구분 검색...`}
+            aria-label="매출구분 검색"
+          />
+          <div className="flex items-center justify-between border-b px-2 py-1 text-xs">
+            <span className="text-muted-foreground">
+              {buttonLabel}
+            </span>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={selectAll}
+                className="rounded px-1.5 py-0.5 hover:bg-accent"
+              >
+                전체
+              </button>
+              <button
+                type="button"
+                onClick={clearAll}
+                className="rounded px-1.5 py-0.5 hover:bg-accent"
+              >
+                해제
+              </button>
+            </div>
+          </div>
+          <CommandList>
+            <CommandEmpty>일치하는 항목이 없습니다.</CommandEmpty>
+            <CommandGroup>
+              {options.map((opt) => {
+                const isChecked = selected.has(opt.value)
+                return (
+                  <CommandItem
+                    key={opt.value}
+                    value={opt.value}
+                    onSelect={() => toggle(opt.value)}
+                    className="flex items-center gap-2"
+                  >
+                    <Checkbox
+                      checked={isChecked}
+                      aria-label={`${opt.value} 선택`}
+                      tabIndex={-1}
+                      className="pointer-events-none"
+                    />
+                    <span className="flex-1 truncate" title={opt.value}>
+                      {opt.value}
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                      {koInt.format(opt.count)}
+                    </span>
+                  </CommandItem>
+                )
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
 
 function UploadSlot({
   label,

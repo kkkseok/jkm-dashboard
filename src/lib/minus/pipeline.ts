@@ -75,6 +75,7 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
 
   for (const { left, right } of joined) {
     // 원본 (sales)
+    const salesType = readStr(left, SALES_MAPPING.fields.salesType)
     const salesDate = readStr(left, SALES_MAPPING.fields.salesDate)
     const onlineOrderNo = readStr(left, SALES_MAPPING.fields.onlineOrderNo)
     const K = readNum(left, SALES_MAPPING.fields.K)
@@ -116,6 +117,7 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     }
 
     rows.push({
+      salesType,
       salesDate,
       onlineOrderNo,
       K,

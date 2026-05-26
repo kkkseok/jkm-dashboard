@@ -17,6 +17,7 @@ export type RawRevenueRow = unknown[]
 
 export type EnrichedRow = {
   // 원본 (sales_status_basic)
+  salesType: string | null // A — 매출구분 (예: "[B2B]", "A-CJ온스타일(jkman2)"). 원본 그대로 보존.
   salesDate: string | null // C
   onlineOrderNo: string | null // AE (매핑 key)
   K: number | null // 매출액

@@ -16,6 +16,7 @@ export const SALES_MAPPING = {
   /** sales 의 매핑 key (= 온라인주문번호) */
   keyCol: 'AE' as const,
   fields: {
+    salesType: 'A', // 매출구분 (예: "[B2B]", "A-CJ온스타일(jkman2)")
     salesDate: 'C', // 매출일
     onlineOrderNo: 'AE', // 온라인주문번호 (매핑 key)
     K: 'K', // 매출액

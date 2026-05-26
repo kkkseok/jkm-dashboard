@@ -85,6 +85,7 @@ describe('enrichMinusData', () => {
       makeRow({ A: 'header2' }), // 헤더 행 2
       // 행1: 정상 + cal_amount 등록됨
       makeRow({
+        A: 'A-CJ온스타일(jkman2)',
         C: '2026-05-22',
         K: 1000,
         L: 900,
@@ -97,6 +98,7 @@ describe('enrichMinusData', () => {
       }),
       // 행2: K=0 → 계산 일부 null + cal_amount 매칭 실패
       makeRow({
+        A: 'B-GS SHOP(1026971)',
         C: '2026-05-22',
         K: 0,
         L: 900,
@@ -109,6 +111,7 @@ describe('enrichMinusData', () => {
       }),
       // 행3: revenue 조인 실패 (ORD-NONE) → productCode null → extra null
       makeRow({
+        A: '[B2B]',
         C: '2026-05-22',
         K: 500,
         L: 550,
@@ -146,6 +149,7 @@ describe('enrichMinusData', () => {
     expect(rows).toHaveLength(3)
 
     // 행1 — 정상
+    expect(rows[0].salesType).toBe('A-CJ온스타일(jkman2)')
     expect(rows[0].onlineOrderNo).toBe('ORD-1')
     expect(rows[0].productCode).toBe('P-100')
     expect(rows[0].productName).toBe('상품 100')
