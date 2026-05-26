@@ -126,7 +126,7 @@ describe('enrichMinusData', () => {
       [],
     ]
 
-    // revenue_profit_brand: 헤더 2행 + 데이터 2행 (v1.3: product → brand, AG → AH, BF 추가)
+    // revenue_profit_brand: 표시 정보 (v1.3: AG → AH, BF 추가). v1.6: AQ 는 product 에서 가져옴.
     const revenueRows: unknown[][] = [
       makeRow({ A: 'header1' }),
       makeRow({ A: 'header2' }),
@@ -134,8 +134,17 @@ describe('enrichMinusData', () => {
       makeRow({ E: 'ORD-2', Y: 'P-200', AH: '상품 200', BF: '브랜드 B' }),
     ]
 
+    // revenue_profit_product: 판매세트 수량 (v1.6 2026-05-26)
+    const productRows: unknown[][] = [
+      makeRow({ A: 'header1' }),
+      makeRow({ A: 'header2' }),
+      makeRow({ E: 'ORD-1', AQ: 3 }),
+      makeRow({ E: 'ORD-2', AQ: 2 }),
+    ]
+
     const salesBuf = makeWorkbookBuffer(salesRows)
     const revenueBuf = makeWorkbookBuffer(revenueRows)
+    const productBuf = makeWorkbookBuffer(productRows)
 
     // cal_amount: P-100 만 등록, P-200 은 미등록 (매칭 실패)
     const calMap = new Map<string, number>([['P-100', 50]])
@@ -143,6 +152,7 @@ describe('enrichMinusData', () => {
     const { rows, diagnostics } = await enrichMinusData({
       salesFile: salesBuf,
       revenueFile: revenueBuf,
+      productFile: productBuf,
       calAmountMap: calMap,
     })
 
@@ -157,11 +167,14 @@ describe('enrichMinusData', () => {
     expect(rows[0].K).toBe(1000)
     expect(rows[0].L).toBe(900)
     expect(rows[0].R).toBe(100)
-    expect(rows[0].extraSettlement).toBe(50)
+    // cal_amount 단가 50 × 수량 3 = 150
+    expect(rows[0].quantity).toBe(3)
+    expect(rows[0].extraSettlement).toBe(150)
     expect(rows[0].commissionRate).toBeCloseTo(0.1, 10)
     expect(rows[0].settlementAmount).toBeCloseTo(50, 10)
-    expect(rows[0].totalMargin).toBeCloseTo(200, 10) // 100 + 50 + 50
-    expect(rows[0].totalMarginRate).toBeCloseTo(200 / 900, 10)
+    // totalMargin = R(100) + settlement(50) + extraSettlement(150) = 300
+    expect(rows[0].totalMargin).toBeCloseTo(300, 10)
+    expect(rows[0].totalMarginRate).toBeCloseTo(300 / 900, 10)
 
     // 행2 — K=0, cal_amount 미등록(P-200 미등록)
     expect(rows[1].onlineOrderNo).toBe('ORD-2')
@@ -203,9 +216,14 @@ describe('enrichMinusData', () => {
       makeRow({ A: 'header1' }),
       makeRow({ A: 'header2' }),
     ])
+    const emptyProduct = makeWorkbookBuffer([
+      makeRow({ A: 'header1' }),
+      makeRow({ A: 'header2' }),
+    ])
     const { rows, diagnostics } = await enrichMinusData({
       salesFile: emptySales,
       revenueFile: emptyRevenue,
+      productFile: emptyProduct,
       calAmountMap: new Map(),
     })
     expect(rows).toEqual([])
@@ -248,10 +266,17 @@ describe('enrichMinusData', () => {
       makeRow({ E: 'ORD-1', Y: 'P-1', AH: '상품1', BF: '브랜드1' }),
       makeRow({ E: 'ORD-2', Y: 'P-2', AH: '상품2', BF: '브랜드2' }),
     ]
+    const productRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      makeRow({ E: 'ORD-1', AQ: 1 }),
+      makeRow({ E: 'ORD-2', AQ: 1 }),
+    ]
 
     const { rows, diagnostics } = await enrichMinusData({
       salesFile: makeWorkbookBuffer(salesRows),
       revenueFile: makeWorkbookBuffer(revenueRows),
+      productFile: makeWorkbookBuffer(productRows),
       calAmountMap: new Map(),
     })
 
@@ -283,9 +308,15 @@ describe('enrichMinusData', () => {
         makeRow({ A: 'h2' }),
         makeRow({ E: 'ORD-X', Y: 'P-X', AH: '상품X', BF: '브랜드X' }),
       ]
+      const productRows: unknown[][] = [
+        makeRow({ A: 'h1' }),
+        makeRow({ A: 'h2' }),
+        makeRow({ E: 'ORD-X', AQ: 1 }),
+      ]
       const { rows } = await enrichMinusData({
         salesFile: makeWorkbookBuffer(salesRows),
         revenueFile: makeWorkbookBuffer(revenueRows),
+        productFile: makeWorkbookBuffer(productRows),
         calAmountMap: new Map(),
       })
       expect(rows, `라벨 "${label}" 합계 행 미제외`).toHaveLength(1)
@@ -303,11 +334,17 @@ describe('enrichMinusData', () => {
       makeRow({ A: 'h2' }),
       makeRow({ E: 'ORD-Z', Y: 'P-ZERO', AH: '상품 Z', BF: '브랜드 Z' }),
     ]
+    const productRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      makeRow({ E: 'ORD-Z', AQ: 2 }),
+    ]
     const calMap = new Map<string, number>([['P-ZERO', 0]])
 
     const { rows, diagnostics } = await enrichMinusData({
       salesFile: makeWorkbookBuffer(salesRows),
       revenueFile: makeWorkbookBuffer(revenueRows),
+      productFile: makeWorkbookBuffer(productRows),
       calAmountMap: calMap,
     })
 

@@ -44,5 +44,23 @@ export const REVENUE_MAPPING = {
   },
 } as const
 
+/**
+ * 매출이익리스트(상품) — v1.6 (2026-05-26 사용자 확정).
+ * brand 파일과 컬럼 구조 동일하지만 AQ 의미가 "세트 수량" (= 주문 단위).
+ *  - brand.AQ = 단품 수량 (예: 1세트=10개일 때 20)
+ *  - product.AQ = 세트 수량 (예: 2)
+ * 추가후정산금 계산에 사용하는 quantity 는 product.AQ 로 확정.
+ */
+export const PRODUCT_MAPPING = {
+  fileName: 'revenue_profit_product',
+  headerRows: 2,
+  /** product 의 매핑 key (= 주문번호, brand 와 동일 letter) */
+  keyCol: 'E' as const,
+  fields: {
+    quantity: 'AQ', // 판매세트 수량
+  },
+} as const
+
 export type SalesMapping = typeof SALES_MAPPING
 export type RevenueMapping = typeof REVENUE_MAPPING
+export type ProductMapping = typeof PRODUCT_MAPPING

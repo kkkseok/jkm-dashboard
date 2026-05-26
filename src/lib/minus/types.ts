@@ -29,13 +29,22 @@ export type EnrichedRow = {
   T: number | null // 이익액(판매가)
   U: number | null // 이익률(판매가)
 
-  // 매핑 (revenue_profit_brand — v1.3: 기존 product 파일 폐기, brand 한 파일로 통합)
+  // 매핑 from revenue_profit_brand — 표시 정보 (상품 식별, 브랜드명)
   productCode: string | null // Y
-  productName: string | null // AH (v1.3: AG → AH 정정)
-  brandName: string | null // BF (v1.3 신규)
+  productName: string | null // AH (v1.3)
+  brandName: string | null // BF (v1.3)
 
-  // 룩업 (cal_amount, 매칭 실패 시 null)
-  extraSettlement: number | null // null = 매칭 실패, number = 등록됨(0 포함)
+  // 매핑 from revenue_profit_product — 판매세트 수량 (v1.6 2026-05-26)
+  // brand 의 AQ(단품 수량) 가 아니라 product 의 AQ(세트 수량) 를 quantity 로 사용한다.
+  // product 매칭 실패 시 null.
+  quantity: number | null
+
+  // 룩업 (cal_amount × quantity)
+  // v1.5 (2026-05-26): extraSettlement 의 의미가 "cal_amount 의 단가 × 판매세트 수량" 으로 변경.
+  // v1.6 (2026-05-26): quantity 출처가 product 파일로 명확화.
+  // - null = cal_amount 매칭 실패 OR product 매칭 실패(quantity 없음)
+  // - number = 최종 금액 (cal_amount 입력값 × quantity)
+  extraSettlement: number | null
 
   // 계산 (7개) - profit-calc 스킬 수식 적용
   commissionRate: number | null // 1 - L/K

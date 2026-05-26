@@ -83,16 +83,17 @@ const PAGE_SIZE = 100
 const koInt = new Intl.NumberFormat("ko-KR")
 
 /**
- * localStorage 키 (v1).
- * 향후 EnrichedRow 구조가 깨지는 변경이 생기면 v2 로 바꿔 구버전 캐시를 자동 무력화한다.
+ * localStorage 키 (v2 — 2026-05-26).
+ * v1 → v2: quantity 의미 변경 (brand.AQ 단품수량 → product.AQ 세트수량) + analyzedFileNames.product 신규.
+ * 키가 다르므로 v1 캐시는 자동 무력화된다.
  */
-const STORAGE_KEY = "minus:lastAnalysis-v1"
+const STORAGE_KEY = "minus:lastAnalysis-v2"
 
 type PersistedAnalysis = {
-  v: 1
+  v: 2
   rows: RowWithId[]
   diagnostics: PipelineDiagnostics
-  analyzedFileNames: { sales: string; revenue: string }
+  analyzedFileNames: { sales: string; revenue: string; product: string }
   analyzedAt: string // ISO
 }
 
@@ -102,7 +103,7 @@ function loadPersisted(): PersistedAnalysis | null {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as PersistedAnalysis
-    if (parsed.v !== 1) return null
+    if (parsed.v !== 2) return null
     if (!Array.isArray(parsed.rows) || !parsed.diagnostics) return null
     return parsed
   } catch {
@@ -141,6 +142,7 @@ const CSV_HEADERS: ReadonlyArray<readonly [keyof EnrichedRow, string]> = [
   ["productCode", "상품코드"],
   ["productName", "상품명"],
   ["brandName", "브랜드명"],
+  ["quantity", "판매세트"],
   ["K", "매출액"],
   ["L", "공급가"],
   ["R", "이익액"],
@@ -221,14 +223,17 @@ type AnalyzeStep =
 type RowWithId = EnrichedRow & { _rowId: number }
 
 export function MinusAnalyzeClient() {
-  // 업로드 슬롯
+  // 업로드 슬롯 (v1.6 — product 슬롯 추가)
   const [salesFile, setSalesFile] = React.useState<File | null>(null)
   const [revenueFile, setRevenueFile] = React.useState<File | null>(null)
+  const [productFile, setProductFile] = React.useState<File | null>(null)
   const [salesError, setSalesError] = React.useState<string | null>(null)
   const [revenueError, setRevenueError] = React.useState<string | null>(null)
+  const [productError, setProductError] = React.useState<string | null>(null)
 
   // 재업로드 충돌 Dialog
-  type PendingFile = { slot: "sales" | "revenue"; file: File } | null
+  type SlotKey = "sales" | "revenue" | "product"
+  type PendingFile = { slot: SlotKey; file: File } | null
   const [reuploadPending, setReuploadPending] =
     React.useState<PendingFile>(null)
 
@@ -240,6 +245,7 @@ export function MinusAnalyzeClient() {
   const [analyzedFileNames, setAnalyzedFileNames] = React.useState<{
     sales: string
     revenue: string
+    product: string
   } | null>(null)
   const [analyzedAt, setAnalyzedAt] = React.useState<Date | null>(null)
   /**
@@ -301,7 +307,7 @@ export function MinusAnalyzeClient() {
     }
     const t = window.setTimeout(() => {
       const result = savePersisted({
-        v: 1,
+        v: 2,
         rows,
         diagnostics,
         analyzedFileNames,
@@ -342,39 +348,29 @@ export function MinusAnalyzeClient() {
     return null
   }
 
-  function setSlotFile(slot: "sales" | "revenue", file: File | null) {
+  function setSlotFile(slot: SlotKey, file: File | null) {
+    const setFile =
+      slot === "sales" ? setSalesFile : slot === "revenue" ? setRevenueFile : setProductFile
+    const setError =
+      slot === "sales" ? setSalesError : slot === "revenue" ? setRevenueError : setProductError
+
     if (file == null) {
-      if (slot === "sales") {
-        setSalesFile(null)
-        setSalesError(null)
-      } else {
-        setRevenueFile(null)
-        setRevenueError(null)
-      }
+      setFile(null)
+      setError(null)
       return
     }
     const err = validateXlsx(file)
     if (err) {
-      if (slot === "sales") {
-        setSalesError(err)
-        setSalesFile(null)
-      } else {
-        setRevenueError(err)
-        setRevenueFile(null)
-      }
+      setError(err)
+      setFile(null)
       return
     }
-    if (slot === "sales") {
-      setSalesFile(file)
-      setSalesError(null)
-    } else {
-      setRevenueFile(file)
-      setRevenueError(null)
-    }
+    setFile(file)
+    setError(null)
   }
 
   /** 재업로드 충돌 시 — 분석 완료 상태에서 새 파일을 슬롯에 넣으려 하면 Dialog 로 confirm */
-  function handleSlotChange(slot: "sales" | "revenue", file: File | null) {
+  function handleSlotChange(slot: SlotKey, file: File | null) {
     if (file == null) {
       setSlotFile(slot, null)
       return
@@ -410,7 +406,7 @@ export function MinusAnalyzeClient() {
    * -------------------------------------------------------- */
 
   async function runAnalyze() {
-    if (!salesFile || !revenueFile) return
+    if (!salesFile || !revenueFile || !productFile) return
     setStep({ kind: "running", message: "(1/3) 병합 헤더 분석" })
 
     try {
@@ -426,6 +422,7 @@ export function MinusAnalyzeClient() {
       const result = await enrichMinusData({
         salesFile,
         revenueFile,
+        productFile,
         calAmountMap,
       })
 
@@ -440,6 +437,7 @@ export function MinusAnalyzeClient() {
       setAnalyzedFileNames({
         sales: salesFile.name,
         revenue: revenueFile.name,
+        product: productFile.name,
       })
       setAnalyzedAt(new Date())
       setStep({ kind: "done" })
@@ -458,8 +456,10 @@ export function MinusAnalyzeClient() {
     setRestoredFromStorage(false)
     setSalesFile(null)
     setRevenueFile(null)
+    setProductFile(null)
     setSalesError(null)
     setRevenueError(null)
+    setProductError(null)
     setRows(null)
     setDiagnostics(null)
     setAnalyzedFileNames(null)
@@ -479,7 +479,12 @@ export function MinusAnalyzeClient() {
    * 셀 저장 시 클라이언트 자동 재계산
    * -------------------------------------------------------- */
 
-  function applyCalAmountUpdate(productCode: string, extraSettlement: number) {
+  /**
+   * cal_amount Dialog 에서 사용자가 입력한 새 단가(perUnit)를 받아, 같은 productCode 의
+   * 모든 행에 대해 extraSettlement = perUnit × 각 행의 quantity 로 재계산.
+   * (v1.5 2026-05-26 — quantity 가 null 이면 해당 행은 여전히 매칭 실패로 남는다.)
+   */
+  function applyCalAmountUpdate(productCode: string, perUnit: number) {
     if (rows == null) return
 
     let updatedCount = 0
@@ -488,37 +493,37 @@ export function MinusAnalyzeClient() {
       if (r.productCode !== productCode) return r
       updatedCount++
       updatedIds.add(r._rowId)
+      const nextExtra = r.quantity != null ? perUnit * r.quantity : null
       const profit = computeProfit({
         K: r.K,
         L: r.L,
         Q: r.Q,
         R: r.R,
-        extraSettlement,
+        extraSettlement: nextExtra,
       })
       return {
         ...r,
-        extraSettlement,
+        extraSettlement: nextExtra,
         ...profit,
       }
     })
     setRows(nextRows)
 
-    // diagnostics.missingExtraCount 도 클라이언트에서 갱신
+    // diagnostics.missingExtraCount 갱신 — 갱신된 행 중 새로 값이 채워진 수만큼 감소
     setDiagnostics((d) => {
       if (!d) return d
-      // 매칭 실패였던 행이 이제 값이 있으므로 누락 count 가 감소
-      // (단, 같은 productCode 가 이전에 값을 가지고 있었으면 변화 없음)
-      const wasMissingForCode = rows.some(
-        (r) => r.productCode === productCode && r.extraSettlement == null,
-      )
-      const hadMissingRows = rows.filter(
-        (r) => r.productCode === productCode && r.extraSettlement == null,
+      const previouslyMissingNowFilled = rows.filter(
+        (r) =>
+          r.productCode === productCode &&
+          r.extraSettlement == null &&
+          r.quantity != null,
       ).length
       return {
         ...d,
-        missingExtraCount: wasMissingForCode
-          ? Math.max(0, d.missingExtraCount - hadMissingRows)
-          : d.missingExtraCount,
+        missingExtraCount: Math.max(
+          0,
+          d.missingExtraCount - previouslyMissingNowFilled,
+        ),
       }
     })
 
@@ -721,6 +726,7 @@ export function MinusAnalyzeClient() {
           )
         },
       },
+      numericColumn<RowWithId>("quantity", "판매세트", (r) => r.quantity),
       numericColumn<RowWithId>("K", "매출액", (r) => r.K),
       numericColumn<RowWithId>("L", "공급가", (r) => r.L),
       numericColumn<RowWithId>("R", "이익액", (r) => r.R),
@@ -875,6 +881,7 @@ export function MinusAnalyzeClient() {
             key === "K" ||
             key === "L" ||
             key === "R" ||
+            key === "quantity" ||
             key === "settlementAmount" ||
             key === "extraSettlement" ||
             key === "totalMargin"
@@ -915,8 +922,10 @@ export function MinusAnalyzeClient() {
   const canAnalyze =
     salesFile != null &&
     revenueFile != null &&
+    productFile != null &&
     salesError == null &&
     revenueError == null &&
+    productError == null &&
     step.kind !== "running"
 
   const showResults = step.kind === "done" && rows != null && diagnostics != null
@@ -933,7 +942,8 @@ export function MinusAnalyzeClient() {
           {showResults && analyzedFileNames && analyzedAt && (
             <p className="text-xs text-muted-foreground">
               분석 완료: {analyzedFileNames.sales} +{" "}
-              {analyzedFileNames.revenue} (
+              {analyzedFileNames.revenue} +{" "}
+              {analyzedFileNames.product} (
               {formatDateTime(analyzedAt)})
               {restoredFromStorage && (
                 <span className="ml-2 text-foreground/70">
@@ -964,7 +974,7 @@ export function MinusAnalyzeClient() {
             <CardTitle>1단계: 파일 업로드</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <UploadSlot
                 label="매출현황"
                 file={salesFile}
@@ -973,21 +983,31 @@ export function MinusAnalyzeClient() {
                 slotKey="sales"
               />
               <UploadSlot
-                label="매출이익리스트(그룹상품+단품/주문단위 집계)"
+                label="매출이익리스트(브랜드)"
                 file={revenueFile}
                 error={revenueError}
                 onFileChange={(f) => handleSlotChange("revenue", f)}
                 slotKey="revenue"
+              />
+              <UploadSlot
+                label="매출이익리스트(상품)"
+                file={productFile}
+                error={productError}
+                onFileChange={(f) => handleSlotChange("product", f)}
+                slotKey="product"
               />
             </div>
 
             <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap gap-2 text-sm">
                 <Badge variant={salesFile ? "default" : "outline"}>
-                  {salesFile ? "✓" : "☐"} 파일1
+                  {salesFile ? "✓" : "☐"} 매출현황
                 </Badge>
                 <Badge variant={revenueFile ? "default" : "outline"}>
-                  {revenueFile ? "✓" : "☐"} 파일2
+                  {revenueFile ? "✓" : "☐"} 브랜드
+                </Badge>
+                <Badge variant={productFile ? "default" : "outline"}>
+                  {productFile ? "✓" : "☐"} 상품
                 </Badge>
               </div>
               <Button
@@ -1608,7 +1628,7 @@ function UploadSlot({
   file: File | null
   error: string | null
   onFileChange: (file: File | null) => void
-  slotKey: "sales" | "revenue"
+  slotKey: "sales" | "revenue" | "product"
 }) {
   const inputId = `upload-${slotKey}`
   const [dragOver, setDragOver] = React.useState(false)

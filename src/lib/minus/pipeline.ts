@@ -16,7 +16,7 @@
  */
 
 import { computeProfit } from './calc'
-import { REVENUE_MAPPING, SALES_MAPPING } from './mapping'
+import { PRODUCT_MAPPING, REVENUE_MAPPING, SALES_MAPPING } from './mapping'
 import {
   leftJoin,
   parseWorkbookToRows,
@@ -28,7 +28,13 @@ import type { EnrichedRow, PipelineDiagnostics } from './types'
 
 export type PipelineInput = {
   salesFile: File | ArrayBuffer
+  /** 매출이익리스트(브랜드) — productName/brandName 등 표시 정보 출처 */
   revenueFile: File | ArrayBuffer
+  /**
+   * 매출이익리스트(상품) — quantity(판매세트 수량, AQ) 출처. v1.6 (2026-05-26).
+   * brand.AQ 는 단품 수량이라 추가후정산금 계산에 부적합.
+   */
+  productFile: File | ArrayBuffer
   /**
    * productCode → extraSettlement 룩업.
    * 호출 측(next-builder)이 getCalAmountMap() 으로 가져와서 주입한다.
@@ -46,25 +52,40 @@ export type PipelineResult = {
  * 두 파싱 결과(또는 ArrayBuffer/File)와 cal_amount Map 으로부터 EnrichedRow 배열 + 진단 정보 생성.
  */
 export async function enrichMinusData(input: PipelineInput): Promise<PipelineResult> {
-  const { salesFile, revenueFile, calAmountMap } = input
+  const { salesFile, revenueFile, productFile, calAmountMap } = input
 
-  // 1. 두 파일 병렬 파싱
-  const [salesAll, revenueAll] = await Promise.all([
+  // 1. 세 파일 병렬 파싱
+  const [salesAll, revenueAll, productAll] = await Promise.all([
     parseWorkbookToRows(salesFile),
     parseWorkbookToRows(revenueFile),
+    parseWorkbookToRows(productFile),
   ])
 
   // 헤더 행 제거 + 빈 행 필터
   const salesRows = sliceDataRows(salesAll, SALES_MAPPING.headerRows)
   const revenueRows = sliceDataRows(revenueAll, REVENUE_MAPPING.headerRows)
+  const productRows = sliceDataRows(productAll, PRODUCT_MAPPING.headerRows)
 
-  // 2. LEFT JOIN (key: AE ↔ E)
-  const joined = leftJoin(
+  // 2. LEFT JOIN 두 번 — sales ↔ brand(표시), sales ↔ product(수량)
+  // 두 revenue 파일 모두 매핑 키가 E 라서 같은 키로 두 번 조인한다.
+  const joinedRevenue = leftJoin(
     salesRows,
     revenueRows,
     SALES_MAPPING.keyCol,
     REVENUE_MAPPING.keyCol,
   )
+  const joinedProduct = leftJoin(
+    salesRows,
+    productRows,
+    SALES_MAPPING.keyCol,
+    PRODUCT_MAPPING.keyCol,
+  )
+  // 동일한 sales 순서를 기준으로 두 결과를 인덱스로 묶는다.
+  const joined = joinedRevenue.map((r, i) => ({
+    left: r.left,
+    revenue: r.right,
+    product: joinedProduct[i]?.right ?? null,
+  }))
 
   // 3~5. 각 행 enrich
   const rows: EnrichedRow[] = []
@@ -73,7 +94,7 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
   let missingExtraCount = 0
   let computeNullCount = 0
 
-  for (const { left, right } of joined) {
+  for (const { left, revenue, product } of joined) {
     // 원본 (sales)
     const salesType = readStr(left, SALES_MAPPING.fields.salesType)
     const salesDate = readStr(left, SALES_MAPPING.fields.salesDate)
@@ -87,18 +108,25 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     const T = readNum(left, SALES_MAPPING.fields.T)
     const U = readNum(left, SALES_MAPPING.fields.U)
 
-    // 매핑 (revenue_profit_brand)
-    const productCode = right ? readStr(right, REVENUE_MAPPING.fields.productCode) : null
-    const productName = right ? readStr(right, REVENUE_MAPPING.fields.productName) : null
-    const brandName = right ? readStr(right, REVENUE_MAPPING.fields.brandName) : null
+    // 매핑 (revenue_profit_brand) — 표시 정보만
+    const productCode = revenue ? readStr(revenue, REVENUE_MAPPING.fields.productCode) : null
+    const productName = revenue ? readStr(revenue, REVENUE_MAPPING.fields.productName) : null
+    const brandName = revenue ? readStr(revenue, REVENUE_MAPPING.fields.brandName) : null
+
+    // 매핑 (revenue_profit_product) — 판매세트 수량
+    const quantity = product ? readNum(product, PRODUCT_MAPPING.fields.quantity) : null
 
     if (productCode != null) matchedCount++
     else unmatchedJoinCount++
 
-    // 룩업 (cal_amount) - null = 매칭 실패, number(0 포함) = 등록됨
+    // 룩업 (cal_amount × quantity) — v1.5 (2026-05-26 사용자 확정)
+    // extraSettlement = cal_amount 단가 × revenue 판매수량 (AQ)
+    // - cal_amount 매칭 실패 OR quantity null → extraSettlement = null
+    // - cal_amount 0 등록 + quantity 양수 → extraSettlement = 0 (누락 아님)
     let extraSettlement: number | null = null
-    if (productCode != null && calAmountMap.has(productCode)) {
-      extraSettlement = calAmountMap.get(productCode) ?? null
+    if (productCode != null && calAmountMap.has(productCode) && quantity != null) {
+      const perUnit = calAmountMap.get(productCode) ?? null
+      extraSettlement = perUnit != null ? perUnit * quantity : null
     }
     if (extraSettlement == null) missingExtraCount++
 
@@ -131,6 +159,7 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
       productCode,
       productName,
       brandName,
+      quantity,
       extraSettlement,
       ...profit,
     })
