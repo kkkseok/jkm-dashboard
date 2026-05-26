@@ -3,9 +3,69 @@
  *
  * 클라이언트사이드(브라우저) 사용이 기본이지만, Node 환경(테스트 등)에서도
  * 동작하도록 ArrayBuffer 입력을 허용. Node 전용 API import 금지.
+ *
+ * 비밀번호 보호(.xlsx with password) 파일도 자동 해제 — 사내 운영 규칙상
+ * 비밀번호는 일괄 '1111' 로 고정되어 있어 하드코딩.
  */
 
 import * as XLSX from 'xlsx'
+
+/** 사내 일괄 비밀번호 — 운영 규칙으로 고정. */
+const FIXED_XLSX_PASSWORD = '1111'
+
+/** CFB(Compound File Binary) 시그니처 = OOXML 암호화된 .xlsx 의 첫 8바이트. */
+const CFB_SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]
+
+function hasCfbSignature(buf: ArrayBuffer): boolean {
+  if (buf.byteLength < CFB_SIGNATURE.length) return false
+  const head = new Uint8Array(buf, 0, CFB_SIGNATURE.length)
+  for (let i = 0; i < CFB_SIGNATURE.length; i++) {
+    if (head[i] !== CFB_SIGNATURE[i]) return false
+  }
+  return true
+}
+
+/**
+ * 브라우저에서 officecrypto-tool 이 `Buffer.from()` 을 호출하므로
+ * 클라이언트에서는 `buffer` polyfill 의 Buffer 를 글로벌에 주입.
+ * 서버(Node) 에서는 이미 글로벌에 있으므로 noop.
+ */
+async function ensureBufferGlobal(): Promise<void> {
+  if (typeof window === 'undefined') return
+  const g = globalThis as typeof globalThis & { Buffer?: unknown }
+  if (g.Buffer) return
+  const { Buffer } = await import('buffer')
+  g.Buffer = Buffer
+}
+
+/**
+ * 암호화된 .xlsx 면 고정 비번 '1111' 로 복호화한 ArrayBuffer 반환.
+ * 일반 .xlsx (PK 시작) 면 입력을 그대로 반환.
+ */
+async function decryptIfNeeded(buf: ArrayBuffer): Promise<ArrayBuffer> {
+  if (!hasCfbSignature(buf)) return buf
+  await ensureBufferGlobal()
+  const { default: officeCrypto } = await import('officecrypto-tool')
+  try {
+    // 라이브러리는 Buffer 타입을 선언하지만, 내부에서 ArrayBuffer/Uint8Array 입력을
+    // Buffer.from() 으로 자동 변환하므로 Uint8Array 를 그대로 넘겨도 동작.
+    const decrypted = await officeCrypto.decrypt(
+      new Uint8Array(buf) as unknown as Buffer,
+      { password: FIXED_XLSX_PASSWORD },
+    )
+    // Buffer(=Uint8Array) → ArrayBuffer (offset 보정)
+    return decrypted.buffer.slice(
+      decrypted.byteOffset,
+      decrypted.byteOffset + decrypted.byteLength,
+    ) as ArrayBuffer
+  } catch (e) {
+    throw new Error(
+      '비밀번호로 보호된 파일을 열 수 없습니다. ' +
+        '사내 비밀번호(1111) 가 아닌 다른 비밀번호로 설정되어 있거나, 손상된 파일일 수 있습니다.',
+      { cause: e },
+    )
+  }
+}
 
 /**
  * Excel column letter → 0-based index.
@@ -81,6 +141,7 @@ export async function parseWorkbookToRows(
     // File / Blob
     buf = await input.arrayBuffer()
   }
+  buf = await decryptIfNeeded(buf)
   const wb = XLSX.read(buf, { type: 'array', cellDates: true })
   const firstSheetName = wb.SheetNames[0]
   if (!firstSheetName) return []
