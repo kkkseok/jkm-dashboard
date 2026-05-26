@@ -546,7 +546,7 @@ export function MinusAnalyzeClient() {
           const v = row.original.productName
           return (
             <span
-              className="block max-w-xs truncate"
+              className="block whitespace-nowrap"
               title={v ?? undefined}
             >
               {v ?? "-"}
@@ -809,14 +809,14 @@ export function MinusAnalyzeClient() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <UploadSlot
-                label="sales_status_basic.xlsx"
+                label="매출현황"
                 file={salesFile}
                 error={salesError}
                 onFileChange={(f) => handleSlotChange("sales", f)}
                 slotKey="sales"
               />
               <UploadSlot
-                label="revenue_profit_brand.xlsx"
+                label="매출이익리스트(그룹상품+단품/주문단위 집계)"
                 file={revenueFile}
                 error={revenueError}
                 onFileChange={(f) => handleSlotChange("revenue", f)}
