@@ -61,12 +61,15 @@ type Stage =
 export type ProductImportDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** product_channels 등록 채널 마스터 (헤더 후보 + 신규 채널 감지용) */
+  channelOptions: string[]
   onSaved?: () => void
 }
 
 export function ProductImportDialog({
   open,
   onOpenChange,
+  channelOptions,
   onSaved,
 }: ProductImportDialogProps) {
   const [stage, setStage] = React.useState<Stage>({ kind: "select" })
@@ -145,6 +148,8 @@ export function ProductImportDialog({
             skippedCount: res.skipped,
             failedCount: res.failed.length,
             failures: res.failed.map((f) => ({
+              sabangnetCode:
+                chunk[f.row]?.sabangnetCode ?? `(row ${f.row})`,
               productCode: chunk[f.row]?.productCode ?? `(row ${f.row})`,
               reason: f.reason,
             })),
@@ -177,13 +182,18 @@ export function ProductImportDialog({
   }
 
   function downloadTemplate() {
-    // 메모리에서 SheetJS 로 양식 생성
-    const data = [
-      ["상품코드", "채널명", "브랜드명", "상품명", "구분"],
-      ["ABC-001", "A-CJ온스타일(jkman2)", "글리치", "워시팩", "단품"],
-      ["ABC-002", "A-쿠팡", "글리치", "세트A", "복합"],
-    ]
-    const ws = XLSX.utils.aoa_to_sheet(data)
+    // v1.2 Wide format — 4 고정 헤더 + 등록 채널 헤더들 + 예시 2행
+    const channels = channelOptions.length > 0 ? channelOptions : ["GSshop"]
+    const header = ["사방넷코드", "브랜드명", "상품명", "구분", ...channels]
+    const example1: unknown[] = ["SBG-1001", "글리치", "워시팩", "단품"]
+    for (let i = 0; i < channels.length; i++) {
+      example1.push(i === 0 ? "ABC-001" : i === 1 ? "ABC-001-CP" : "")
+    }
+    const example2: unknown[] = ["SBG-1002", "글리치", "세트A", "복합"]
+    for (let i = 0; i < channels.length; i++) {
+      example2.push(i === 1 ? "ABC-002-CP" : i === 2 ? "ABC-002-OH" : "")
+    }
+    const ws = XLSX.utils.aoa_to_sheet([header, example1, example2])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Sheet1")
     XLSX.writeFile(wb, `products_template_${todayYMD()}.xlsx`)
@@ -191,7 +201,7 @@ export function ProductImportDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>
             {stage.kind === "select" && "엑셀로 상품 일괄 등록"}
@@ -268,10 +278,17 @@ export function ProductImportDialog({
                 를 먼저 누르세요.
               </p>
               <ul className="mt-2 list-disc space-y-1 pl-5">
-                <li>첫 행 = 헤더 (상품코드 / 채널명 / 브랜드명 / 상품명 / 구분)</li>
-                <li>필수 5컬럼 모두 채워져야 함</li>
+                <li>
+                  Wide 양식: 첫 행 = 고정 4헤더 (사방넷코드 / 브랜드명 / 상품명
+                  / 구분) + 채널 컬럼들
+                </li>
+                <li>
+                  채널 컬럼은 가변 — 헤더 텍스트가 곧 채널명. 비어있는 채널
+                  칸은 자동 스킵
+                </li>
                 <li>&quot;구분&quot; 값은 &quot;단품&quot; 또는 &quot;복합&quot;</li>
-                <li>같은 파일 안 상품코드 중복 시 첫 행만 채택</li>
+                <li>(사방넷, 채널) 페어와 상품코드는 시스템 전체 UNIQUE</li>
+                <li>같은 파일 안 페어 또는 상품코드 중복 시 첫 행만 채택</li>
                 <li>DB 와의 중복은 기본 건너뜀 (다음 단계에서 upsert 토글 가능)</li>
               </ul>
             </div>
@@ -302,6 +319,7 @@ export function ProductImportDialog({
             onCancel={handleClose}
             onStart={handleStartImport}
             onDownloadTemplate={downloadTemplate}
+            channelOptions={channelOptions}
           />
         )}
 
@@ -359,6 +377,7 @@ function PreviewStage({
   onCancel,
   onStart,
   onDownloadTemplate,
+  channelOptions,
 }: {
   file: File
   parsed: ParseResult
@@ -368,7 +387,19 @@ function PreviewStage({
   onCancel: () => void
   onStart: () => void
   onDownloadTemplate: () => void
+  channelOptions: string[]
 }) {
+  // 시스템 등록 채널 set (Wide 양식 채널 분류용)
+  const registeredChannelSet = React.useMemo(
+    () => new Set(channelOptions),
+    [channelOptions],
+  )
+  const detectedExisting = parsed.detectedChannels.filter((c) =>
+    registeredChannelSet.has(c),
+  )
+  const detectedNew = parsed.detectedChannels.filter(
+    (c) => !registeredChannelSet.has(c),
+  )
   const duplicateCount = parsed.errors.filter(
     (e) => e.kind === "duplicate_in_file",
   ).length
@@ -403,6 +434,53 @@ function PreviewStage({
           ({formatFileSize(file.size)})
         </span>
       </div>
+
+      {/* 감지된 채널 패널 (Wide 양식) */}
+      {parsed.detectedChannels.length > 0 && (
+        <div className="space-y-2 rounded-md border p-3 text-sm">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">
+            감지된 채널 ({parsed.detectedChannels.length}개)
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {parsed.detectedChannels.map((ch) => {
+              const isNew = !registeredChannelSet.has(ch)
+              return (
+                <Badge
+                  key={ch}
+                  variant={isNew ? "default" : "secondary"}
+                  className={cn(
+                    isNew &&
+                      "border-amber-500 bg-amber-100 text-amber-900 dark:bg-amber-200/20 dark:text-amber-200",
+                  )}
+                  aria-label={isNew ? `${ch} (신규 채널)` : `${ch} (기존 채널)`}
+                >
+                  {isNew ? "🆕 " : ""}
+                  {ch}
+                </Badge>
+              )
+            })}
+          </div>
+          {detectedNew.length > 0 && (
+            <Alert variant="default" className="mt-1">
+              <AlertTitle>신규 채널 {detectedNew.length}개 감지</AlertTitle>
+              <AlertDescription>
+                이 채널들은 시스템에 등록되지 않은 채널입니다. 오타가 아닌지
+                확인하세요. 진행 시 product_master 에 그대로 저장되지만, 채널
+                마스터에는 자동 추가되지 않으므로 채널 탭에서 별도 등록이
+                필요합니다.{" "}
+                <span className="font-mono text-xs">
+                  ({detectedNew.join(", ")})
+                </span>
+              </AlertDescription>
+            </Alert>
+          )}
+          {detectedExisting.length > 0 && detectedNew.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              모두 등록된 채널입니다.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="space-y-1 rounded-md border p-3 text-sm">
         <p className="text-xs uppercase tracking-wider text-muted-foreground">
@@ -456,42 +534,50 @@ function PreviewStage({
         <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
           미리보기 (상위 5건)
         </p>
-        <div className="rounded-md border">
-          <Table>
+        <div className="overflow-x-auto rounded-md border">
+          <Table className="min-w-[60rem] table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead>상품코드</TableHead>
-                <TableHead>채널명</TableHead>
-                <TableHead>브랜드</TableHead>
-                <TableHead>상품명</TableHead>
-                <TableHead>구분</TableHead>
-                <TableHead>상태</TableHead>
+                <TableHead className="w-32">사방넷코드</TableHead>
+                <TableHead className="w-28">브랜드</TableHead>
+                <TableHead className="w-44">채널명</TableHead>
+                <TableHead className="w-32">상품코드</TableHead>
+                <TableHead className="w-56">상품명</TableHead>
+                <TableHead className="w-20 text-center">구분</TableHead>
+                <TableHead className="w-20 text-center">상태</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {previewItems.map((it, i) =>
                 it.kind === "ok" ? (
                   <TableRow key={`ok-${i}`}>
-                    <TableCell className="font-mono text-xs">
-                      {it.row.productCode}
+                    <TableCell className="truncate font-mono text-xs" title={it.row.sabangnetCode}>
+                      {it.row.sabangnetCode}
                     </TableCell>
-                    <TableCell className="max-w-[14rem] truncate">
+                    <TableCell className="truncate" title={it.row.brandName}>
+                      {it.row.brandName}
+                    </TableCell>
+                    <TableCell className="truncate" title={it.row.channelName}>
                       {it.row.channelName}
                     </TableCell>
-                    <TableCell>{it.row.brandName}</TableCell>
-                    <TableCell>{it.row.productName}</TableCell>
-                    <TableCell>
+                    <TableCell className="truncate font-mono text-xs" title={it.row.productCode}>
+                      {it.row.productCode}
+                    </TableCell>
+                    <TableCell className="truncate" title={it.row.productName}>
+                      {it.row.productName}
+                    </TableCell>
+                    <TableCell className="text-center">
                       {it.row.isComposite ? "복합" : "단품"}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-center">
                       <Badge variant="secondary">정상</Badge>
                     </TableCell>
                   </TableRow>
                 ) : (
                   <TableRow key={`err-${i}`} className="text-muted-foreground">
                     <TableCell
-                      colSpan={5}
-                      className="text-xs"
+                      colSpan={6}
+                      className="truncate text-xs"
                       title={it.err.message}
                     >
                       {it.err.excelRowIndex != null
@@ -499,7 +585,7 @@ function PreviewStage({
                         : ""}
                       {it.err.message}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-center">
                       <Badge variant="outline">
                         {it.err.kind === "duplicate_in_file" ? "중복" : "오류"}
                       </Badge>
@@ -510,7 +596,7 @@ function PreviewStage({
               {previewItems.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={6}
+                    colSpan={7}
                     className="text-center text-xs text-muted-foreground"
                   >
                     표시할 행이 없습니다.
@@ -563,11 +649,15 @@ function DoneStage({
   onClose: () => void
 }) {
   function downloadFailureCsv() {
-    const headers = ["상품코드", "사유"]
+    const headers = ["사방넷코드", "상품코드", "사유"]
     const lines = [
       headers.join(","),
       ...result.failures.map((f) =>
-        [csvEscape(f.productCode), csvEscape(f.reason)].join(","),
+        [
+          csvEscape(f.sabangnetCode),
+          csvEscape(f.productCode),
+          csvEscape(f.reason),
+        ].join(","),
       ),
     ]
     const content = "﻿" + lines.join("\r\n")
@@ -610,6 +700,7 @@ function DoneStage({
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>사방넷코드</TableHead>
                   <TableHead>상품코드</TableHead>
                   <TableHead>사유</TableHead>
                 </TableRow>
@@ -617,6 +708,9 @@ function DoneStage({
               <TableBody>
                 {result.failures.map((f, i) => (
                   <TableRow key={i}>
+                    <TableCell className="font-mono text-xs">
+                      {f.sabangnetCode}
+                    </TableCell>
                     <TableCell className="font-mono text-xs">
                       {f.productCode}
                     </TableCell>

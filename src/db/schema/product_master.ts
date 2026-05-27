@@ -22,13 +22,20 @@ import {
  *   - Drizzle 의 `.defaultNow()` 는 INSERT 시점에만 적용된다. UPDATE 시 자동 갱신 아님.
  *   - 일관성 보장을 위해 모든 mutation Server Action 에서 명시적으로 `updatedAt: new Date()` 를 set.
  */
+/**
+ * v1.2 (2026-05-27, Wide format): sabangnet_code UNIQUE 제거.
+ *   - 한 사방넷코드가 여러 채널에 등록 가능 → 여러 행으로 저장 (long).
+ *   - (sabangnet_code, channel_name) 복합 UNIQUE 가 새 키.
+ *   - product_code UNIQUE 는 유지 (한 채널에서 한 상품코드).
+ */
 export const productMaster = pgTable(
   'product_master',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    productCode: text('product_code').notNull(),
-    channelName: text('channel_name').notNull(),
+    sabangnetCode: text('sabangnet_code').notNull(),
     brandName: text('brand_name').notNull(),
+    channelName: text('channel_name').notNull(),
+    productCode: text('product_code').notNull(),
     productName: text('product_name').notNull(),
     isComposite: boolean('is_composite').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
@@ -39,8 +46,14 @@ export const productMaster = pgTable(
       .defaultNow(),
   },
   (t) => [
+    uniqueIndex('product_master_sabangnet_channel_uniq').on(
+      t.sabangnetCode,
+      t.channelName,
+    ),
     uniqueIndex('product_master_product_code_uniq').on(t.productCode),
-    // 채널별 필터·DISTINCT 조회 가속 (목록 페이지 채널 필터 + getDistinctChannelNames)
+    // 사방넷별 조회·그룹핑 가속
+    index('product_master_sabangnet_code_idx').on(t.sabangnetCode),
+    // 채널별 필터·DISTINCT 조회 가속
     index('product_master_channel_name_idx').on(t.channelName),
   ],
 )

@@ -64,9 +64,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { ProductFormDialog } from "@/components/product-form-dialog"
+import {
+  ProductFormDialog,
+  type ProductFormGroup,
+} from "@/components/product-form-dialog"
 import { ProductImportDialog } from "@/components/product-import-dialog"
-import { deleteProduct, type ProductRow } from "@/lib/products/actions"
+import {
+  deleteProduct,
+  getProductsBySabangnet,
+  type ProductRow,
+} from "@/lib/products/actions"
 import type { ProductSortKey } from "@/lib/products/schema"
 import { cn } from "@/lib/utils"
 
@@ -82,7 +89,10 @@ type Props = {
   typeFilter: TypeFilter
   sort: ProductSortKey
   dir: "asc" | "desc"
+  /** product_channels 마스터 (양식/폼 옵션) */
   channelOptions: string[]
+  /** 필터용 채널 옵션 (마스터 + 실제 product_master DISTINCT 의 union) */
+  filterChannelOptions: string[]
 }
 
 const koInt = new Intl.NumberFormat("ko-KR")
@@ -109,6 +119,7 @@ export function ProductsListClient({
   sort,
   dir,
   channelOptions,
+  filterChannelOptions,
 }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -222,12 +233,42 @@ export function ProductsListClient({
 
   // Add / Edit / Delete / Import Dialog 상태
   const [addOpen, setAddOpen] = React.useState(false)
-  const [editTarget, setEditTarget] = React.useState<ProductRow | null>(null)
+  const [editGroup, setEditGroup] = React.useState<ProductFormGroup | null>(null)
+  const [editLoading, setEditLoading] = React.useState(false)
   const [deleteTarget, setDeleteTarget] = React.useState<ProductRow | null>(
     null,
   )
   const [isDeleting, setIsDeleting] = React.useState(false)
   const [importOpen, setImportOpen] = React.useState(false)
+
+  async function openEditForRow(r: ProductRow) {
+    setEditLoading(true)
+    try {
+      const rows = await getProductsBySabangnet(r.sabangnetCode)
+      if (rows.length === 0) {
+        toast.error("이 사방넷의 데이터가 사라졌습니다 (다른 사용자가 삭제?). 새로고침 후 다시 시도하세요.")
+        return
+      }
+      // 그룹의 메타는 첫 행 기준 (saveProductGroup 가 전체 행에 동일 메타 적용)
+      const head = rows[0]
+      setEditGroup({
+        sabangnetCode: head.sabangnetCode,
+        brandName: head.brandName,
+        productName: head.productName,
+        isComposite: head.isComposite,
+        rows: rows.map((row) => ({
+          id: row.id,
+          channelName: row.channelName,
+          productCode: row.productCode,
+        })),
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "알 수 없는 오류"
+      toast.error(`로드 실패: ${message}`)
+    } finally {
+      setEditLoading(false)
+    }
+  }
 
   async function handleDelete() {
     if (!deleteTarget) return
@@ -254,27 +295,37 @@ export function ProductsListClient({
   }
 
   function downloadTemplate() {
-    const data = [
-      ["상품코드", "채널명", "브랜드명", "상품명", "구분"],
-      ["ABC-001", "A-CJ온스타일(jkman2)", "글리치", "워시팩", "단품"],
-      ["ABC-002", "A-쿠팡", "글리치", "세트A", "복합"],
-    ]
+    // v1.2 Wide format: 4 고정 + 등록 채널 헤더들
+    const data = buildWideTemplateRows(channelOptions)
     const ws = XLSX.utils.aoa_to_sheet(data)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Sheet1")
     XLSX.writeFile(wb, `products_template_${todayYMD()}.xlsx`)
   }
 
-  // TanStack 컬럼 정의
+  // TanStack 컬럼 정의 — v1.1: 사방넷·브랜드·채널·상품코드·상품명·구분·등록일·actions
   const columns = React.useMemo<ColumnDef<ProductRow>[]>(
     () => [
       {
-        accessorKey: "productCode",
-        header: "상품코드",
+        accessorKey: "sabangnetCode",
+        header: "사방넷코드",
         enableSorting: false,
         cell: ({ row }) => (
           <span className="block min-w-[8rem] font-mono text-xs">
-            {row.original.productCode}
+            {row.original.sabangnetCode}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "brandName",
+        header: "브랜드",
+        enableSorting: false,
+        cell: ({ row }) => (
+          <span
+            className="block max-w-[10rem] truncate"
+            title={row.original.brandName}
+          >
+            {row.original.brandName}
           </span>
         ),
       },
@@ -292,15 +343,12 @@ export function ProductsListClient({
         ),
       },
       {
-        accessorKey: "brandName",
-        header: "브랜드",
+        accessorKey: "productCode",
+        header: "상품코드",
         enableSorting: false,
         cell: ({ row }) => (
-          <span
-            className="block max-w-[10rem] truncate"
-            title={row.original.brandName}
-          >
-            {row.original.brandName}
+          <span className="block min-w-[8rem] font-mono text-xs">
+            {row.original.productCode}
           </span>
         ),
       },
@@ -353,7 +401,7 @@ export function ProductsListClient({
                 variant="ghost"
                 size="icon-sm"
                 aria-label={`${r.productCode} 수정`}
-                onClick={() => setEditTarget(r)}
+                onClick={() => void openEditForRow(r)}
               >
                 <PencilIcon />
               </Button>
@@ -375,9 +423,10 @@ export function ProductsListClient({
 
   // 정렬 헤더 라벨 매핑 — 표 외부에서 정렬 가능 컬럼만 표시
   const sortableHeaders: { key: ProductSortKey; label: string }[] = [
-    { key: "productCode", label: "상품코드" },
-    { key: "channelName", label: "채널명" },
+    { key: "sabangnetCode", label: "사방넷코드" },
     { key: "brandName", label: "브랜드" },
+    { key: "channelName", label: "채널명" },
+    { key: "productCode", label: "상품코드" },
     { key: "isComposite", label: "구분" },
     { key: "createdAt", label: "등록일" },
   ]
@@ -410,29 +459,21 @@ export function ProductsListClient({
 
   return (
     <div className="space-y-6">
-      {/* 헤더 */}
-      <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold">상품 마스터</h1>
-          <p className="text-sm text-muted-foreground">
-            채널별 상품코드와 단품/복합 구분을 관리합니다.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={downloadTemplate}>
-            <DownloadIcon />
-            양식 다운로드
-          </Button>
-          <Button variant="outline" onClick={() => setImportOpen(true)}>
-            <UploadIcon />
-            엑셀 import
-          </Button>
-          <Button onClick={() => setAddOpen(true)}>
-            <PlusIcon />
-            추가
-          </Button>
-        </div>
-      </header>
+      {/* 액션 바 (헤더는 page-level 탭 wrapper 에서 표시) */}
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button variant="outline" onClick={downloadTemplate}>
+          <DownloadIcon />
+          양식 다운로드
+        </Button>
+        <Button variant="outline" onClick={() => setImportOpen(true)}>
+          <UploadIcon />
+          엑셀 import
+        </Button>
+        <Button onClick={() => setAddOpen(true)}>
+          <PlusIcon />
+          추가
+        </Button>
+      </div>
 
       {/* 안내 카드 */}
       <Alert>
@@ -442,8 +483,9 @@ export function ProductsListClient({
             : "아직 등록된 상품이 없습니다"}
         </AlertTitle>
         <AlertDescription>
-          같은 논리 상품이 채널마다 다른 상품코드를 갖는 경우 각각 별도 행으로
-          등록하세요. 상품코드는 시스템 전체에서 고유(UNIQUE)입니다.
+          한 사방넷코드가 여러 채널에 등록될 수 있습니다 (Wide 양식). 행 클릭
+          시 그 사방넷의 모든 채널 행을 한 번에 편집합니다. 상품코드는 시스템
+          전체에서 고유(UNIQUE)입니다.
         </AlertDescription>
       </Alert>
 
@@ -458,7 +500,7 @@ export function ProductsListClient({
             <Input
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="상품코드 / 상품명 / 브랜드 / 채널 검색"
+              placeholder="사방넷코드 / 상품코드 / 상품명 / 브랜드 / 채널 검색"
               className="pl-8 pr-8"
               aria-label="상품 검색"
             />
@@ -478,7 +520,7 @@ export function ProductsListClient({
 
           <div className="flex flex-wrap items-center gap-2">
             <ChannelFilter
-              options={channelOptions}
+              options={filterChannelOptions}
               selected={new Set(channels)}
               onChange={(set) => setChannels(Array.from(set))}
             />
@@ -691,24 +733,35 @@ export function ProductsListClient({
         onSaved={handleSaved}
       />
 
-      {/* 수정 Dialog */}
+      {/* 수정 Dialog (사방넷 그룹 전체 로드) */}
       <ProductFormDialog
-        open={editTarget != null}
+        open={editGroup != null}
         onOpenChange={(o) => {
-          if (!o) setEditTarget(null)
+          if (!o) setEditGroup(null)
         }}
         mode="edit"
-        initial={editTarget}
+        initialGroup={editGroup}
         channelOptions={channelOptions}
-        onSaved={handleSaved}
+        onSaved={() => {
+          setEditGroup(null)
+          handleSaved()
+        }}
       />
 
       {/* Import Dialog */}
       <ProductImportDialog
         open={importOpen}
         onOpenChange={setImportOpen}
+        channelOptions={channelOptions}
         onSaved={handleSaved}
       />
+
+      {/* 그룹 로드 중 토스트 */}
+      {editLoading && (
+        <span aria-live="polite" className="sr-only">
+          상품 그룹 로드 중…
+        </span>
+      )}
 
       {/* 삭제 확인 Dialog */}
       <Dialog
@@ -723,10 +776,12 @@ export function ProductsListClient({
             <DialogDescription>
               {deleteTarget && (
                 <>
-                  &quot;{deleteTarget.productCode}&quot; ({deleteTarget.channelName} ·{" "}
-                  {deleteTarget.brandName} · {deleteTarget.productName}) 을(를)
-                  삭제하시겠습니까?
-                  <br />이 상품은 마이너스 분석의 단품/복합 매칭에서 제외됩니다.
+                  사방넷 {deleteTarget.sabangnetCode} · 채널 &quot;
+                  {deleteTarget.channelName}&quot; · 상품코드 &quot;
+                  {deleteTarget.productCode}&quot; 한 행만 삭제됩니다.
+                  <br />
+                  같은 사방넷의 다른 채널 행은 유지됩니다. 이 상품은 해당 채널의
+                  마이너스 분석 단품/복합 매칭에서 제외됩니다.
                 </>
               )}
             </DialogDescription>
@@ -941,4 +996,23 @@ function todayYMD(): string {
   const m = String(d.getMonth() + 1).padStart(2, "0")
   const dd = String(d.getDate()).padStart(2, "0")
   return `${y}-${m}-${dd}`
+}
+
+/**
+ * Wide format 양식: 4 고정 헤더 + 채널 헤더 + 예시 1~2행.
+ * 채널 옵션이 비어있어도 4 고정 + 빈 채널열 1개를 보장.
+ */
+export function buildWideTemplateRows(channelOptions: string[]): unknown[][] {
+  const channels = channelOptions.length > 0 ? channelOptions : ["GSshop"]
+  const header = ["사방넷코드", "브랜드명", "상품명", "구분", ...channels]
+  // 예시 1행: 첫 두 채널만 채워 wide 사용 패턴 시연
+  const example1: unknown[] = ["SBG-1001", "글리치", "워시팩", "단품"]
+  for (let i = 0; i < channels.length; i++) {
+    example1.push(i === 0 ? "ABC-001" : i === 1 ? "ABC-001-CP" : "")
+  }
+  const example2: unknown[] = ["SBG-1002", "글리치", "세트A", "복합"]
+  for (let i = 0; i < channels.length; i++) {
+    example2.push(i === 1 ? "ABC-002-CP" : i === 2 ? "ABC-002-OH" : "")
+  }
+  return [header, example1, example2]
 }

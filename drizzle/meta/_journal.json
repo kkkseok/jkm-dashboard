@@ -29,6 +29,20 @@
       "when": 1779852872702,
       "tag": "0003_polite_talkback",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779858782032,
+      "tag": "0004_milky_scalphunter",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779863927479,
+      "tag": "0005_fancy_blob",
+      "breakpoints": true
     }
   ]
 }

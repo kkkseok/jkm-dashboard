@@ -16,12 +16,18 @@
 import type { NewProductMaster } from '@/db/schema/product_master'
 
 /**
- * 엑셀에서 사용자가 입력해야 하는 5개 필드만 추린 shape.
+ * 엑셀에서 사용자가 입력해야 하는 6개 필드만 추린 shape.
  * `id`, `createdAt`, `updatedAt` 은 DB 가 채운다.
+ * v1.1 (2026-05-27): sabangnetCode 신규 컬럼 추가 (필수 + UNIQUE).
  */
 export type ProductInput = Pick<
   NewProductMaster,
-  'productCode' | 'channelName' | 'brandName' | 'productName' | 'isComposite'
+  | 'sabangnetCode'
+  | 'brandName'
+  | 'channelName'
+  | 'productCode'
+  | 'productName'
+  | 'isComposite'
 >
 
 /**
@@ -29,9 +35,10 @@ export type ProductInput = Pick<
  * (현재 P3 스키마 파일은 존재. 본 파일은 위 `ProductInput` 를 NewProductMaster 기반으로 정의.)
  */
 export type ProductInputShape = {
-  productCode: string
-  channelName: string
+  sabangnetCode: string
   brandName: string
+  channelName: string
+  productCode: string
   productName: string
   isComposite: boolean
 }
@@ -49,13 +56,14 @@ export type ParsedRow = ProductInput & {
 export type ParseError = {
   /** 어떤 종류의 에러인가 — UI 그룹핑·CSV 컬럼 분리에 사용 */
   kind:
-    | 'header_missing' // 헤더 5컬럼 중 하나라도 누락 (파일 단위 에러)
+    | 'header_missing' // 고정 4헤더 (사방넷·브랜드·상품명·구분) 중 누락 (파일 단위)
     | 'empty_sheet' // 시트 자체가 비어있음
+    | 'no_channel_column' // 채널 컬럼이 한 개도 없음 (파일 단위)
     | 'required_field' // 필수 필드 빈칸
     | 'invalid_type_value' // "구분" 값이 "단품"/"복합" 외
     | 'length_violation' // 길이 제한 위반
     | 'format_violation' // productCode 형식 위반 (영숫자/-/_ 만 허용)
-    | 'duplicate_in_file' // 파일 내 productCode 중복 (두 번째 이후)
+    | 'duplicate_in_file' // 파일 내 (사방넷, 채널) 또는 productCode 중복 (두 번째 이후)
   /** 1-based 엑셀 행 번호. 파일 단위 에러는 null. */
   excelRowIndex: number | null
   /** 어느 필드에서 발생했는지 (UI 셀 강조에 사용). 파일 단위 에러는 null. */
@@ -66,10 +74,12 @@ export type ParseError = {
 
 /** parseProductsXlsx 결과. */
 export type ParseResult = {
-  /** 검증 통과 + 중복 제거된 행. import 가능 상태. */
+  /** 검증 통과 + 중복 제거된 행. import 가능 상태. (wide → long 풀린 후) */
   rows: ParsedRow[]
   /** 행/파일 단위 에러 목록. UI 의 "형식 오류 (제외)" 카운트·미리보기 사유 셀에 사용. */
   errors: ParseError[]
+  /** 헤더에서 감지된 채널명들 (display 순서대로). 미리보기에서 ✅/🆕 분류용. */
+  detectedChannels: string[]
 }
 
 /**
@@ -86,6 +96,7 @@ export type ImportResult = {
   failedCount: number
   /** 실패 행 상세 (CSV 다운로드용) */
   failures: Array<{
+    sabangnetCode: string
     productCode: string
     reason: string
   }>

@@ -15,28 +15,21 @@ import { z } from 'zod'
  *   - 폼 단에서 `RadioGroup` value 를 `undefined` 로 두고 submit 전 검증.
  *   - 본 스키마는 boolean 으로 받음(타입 안전). 폼 resolver 측에서 "선택 안 함" 메시지 처리.
  */
+/**
+ * v1.2 (2026-05-27): 상품코드만 형식·길이 검증 유지. 나머지 4개 필드는 required(빈 값 거부) 만.
+ * 한글/공백/특수문자 모두 허용 — 엑셀 그대로 받음.
+ */
 export const productInputSchema = z.object({
+  sabangnetCode: z.string().trim().min(1, '사방넷코드를 입력하세요'),
+  brandName: z.string().trim().min(1, '브랜드명을 입력하세요'),
+  channelName: z.string().trim().min(1, '채널명을 입력하세요'),
   productCode: z
     .string()
     .trim()
     .min(1, '상품코드를 입력하세요')
     .max(64, '상품코드는 64자 이내로 입력하세요')
     .regex(/^[\w-]+$/, '영문/숫자/하이픈/언더바만 입력 가능합니다'),
-  channelName: z
-    .string()
-    .trim()
-    .min(1, '채널명을 입력하세요')
-    .max(128, '채널명은 128자 이내로 입력하세요'),
-  brandName: z
-    .string()
-    .trim()
-    .min(1, '브랜드명을 입력하세요')
-    .max(64, '브랜드명은 64자 이내로 입력하세요'),
-  productName: z
-    .string()
-    .trim()
-    .min(1, '상품명을 입력하세요')
-    .max(128, '상품명은 128자 이내로 입력하세요'),
+  productName: z.string().trim().min(1, '상품명을 입력하세요'),
   isComposite: z.boolean({
     message: '구분(단품/복합)을 선택하세요',
   }),
@@ -46,9 +39,10 @@ export type ProductInput = z.infer<typeof productInputSchema>
 
 /** 정렬 가능 키 — UI 헤더 클릭으로 토글 가능한 컬럼만. */
 export const productSortKeys = [
-  'productCode',
-  'channelName',
+  'sabangnetCode',
   'brandName',
+  'channelName',
+  'productCode',
   'isComposite',
   'createdAt',
 ] as const

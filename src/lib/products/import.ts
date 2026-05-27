@@ -21,9 +21,10 @@ import type { ImportResult, ParsedRow, ProductInput } from './types'
  */
 export function toProductInputs(parsed: ParsedRow[]): ProductInput[] {
   return parsed.map((p) => ({
-    productCode: p.productCode,
-    channelName: p.channelName,
+    sabangnetCode: p.sabangnetCode,
     brandName: p.brandName,
+    channelName: p.channelName,
+    productCode: p.productCode,
     productName: p.productName,
     isComposite: p.isComposite,
   }))

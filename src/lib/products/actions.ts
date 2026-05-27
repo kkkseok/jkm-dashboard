@@ -1,7 +1,12 @@
 'use server'
 
 import { db } from '@/db/client'
-import { productMaster, type ProductMaster } from '@/db/schema'
+import {
+  productMaster,
+  productChannels,
+  type ProductMaster,
+  type ProductChannel,
+} from '@/db/schema'
 import { and, asc, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import {
@@ -53,6 +58,7 @@ export async function listProducts(
   if (search && search.trim().length > 0) {
     const q = `%${search.trim()}%`
     const searchClause = or(
+      sql`${productMaster.sabangnetCode} ILIKE ${q}`,
       sql`${productMaster.productCode} ILIKE ${q}`,
       sql`${productMaster.productName} ILIKE ${q}`,
       sql`${productMaster.brandName} ILIKE ${q}`,
@@ -73,6 +79,8 @@ export async function listProducts(
 
   const orderColumn = (() => {
     switch (sort) {
+      case 'sabangnetCode':
+        return productMaster.sabangnetCode
       case 'productCode':
         return productMaster.productCode
       case 'channelName':
@@ -115,6 +123,147 @@ export async function listProducts(
  * -------------------------------------------------------------------------- */
 
 /**
+ * 사방넷 그룹 단위 일괄 저장 (v1.2 Wide format).
+ * 한 사방넷코드의 (채널, productCode) 페어들을 트랜잭션으로 동시 처리한다.
+ *
+ * 흐름:
+ *   - 기존 행: 같은 sabangnetCode 의 모든 product_master 행을 로드
+ *   - 새 행과 비교 (channelName 기준):
+ *       추가됨 → INSERT
+ *       사라짐 → DELETE
+ *       양쪽 존재 → UPDATE (productCode/brandName/productName/isComposite/updatedAt)
+ *   - 사용자 입력 productCode/(sabangnet,channel) UNIQUE 충돌은 unique_violation 으로 throw.
+ */
+export type SaveProductGroupInput = {
+  sabangnetCode: string
+  brandName: string
+  productName: string
+  isComposite: boolean
+  rows: Array<{ channelName: string; productCode: string }>
+}
+
+export type SaveProductGroupResult = {
+  inserted: number
+  updated: number
+  deleted: number
+}
+
+export async function saveProductGroup(
+  input: SaveProductGroupInput,
+): Promise<SaveProductGroupResult> {
+  const sabangnetCode = input.sabangnetCode.trim()
+  const brandName = input.brandName.trim()
+  const productName = input.productName.trim()
+  const { isComposite } = input
+
+  if (sabangnetCode.length === 0) throw new Error('사방넷코드를 입력하세요')
+  if (brandName.length === 0) throw new Error('브랜드명을 입력하세요')
+  if (productName.length === 0) throw new Error('상품명을 입력하세요')
+  if (input.rows.length === 0)
+    throw new Error('최소 한 개 채널의 상품코드를 입력하세요')
+
+  // 페어 별 trim + 형식 검증 (상품코드만)
+  const cleaned = input.rows.map((r, i) => {
+    const ch = r.channelName.trim()
+    const pc = r.productCode.trim()
+    if (ch.length === 0) throw new Error(`${i + 1}번째 행: 채널명을 선택하세요`)
+    if (pc.length === 0)
+      throw new Error(`${i + 1}번째 행 (${ch}): 상품코드를 입력하세요`)
+    if (pc.length > 64)
+      throw new Error(`${i + 1}번째 행 (${ch}): 상품코드는 64자 이내`)
+    if (!/^[\w-]+$/.test(pc))
+      throw new Error(
+        `${i + 1}번째 행 (${ch}): 상품코드 형식 오류 (영문/숫자/-/_)`,
+      )
+    return { channelName: ch, productCode: pc }
+  })
+
+  // 동일 채널이 두 번 등장하면 거부
+  const seenCh = new Set<string>()
+  for (const r of cleaned) {
+    if (seenCh.has(r.channelName)) {
+      throw new Error(`같은 채널이 두 번 입력되었습니다: ${r.channelName}`)
+    }
+    seenCh.add(r.channelName)
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const existing = await tx
+        .select()
+        .from(productMaster)
+        .where(eq(productMaster.sabangnetCode, sabangnetCode))
+
+      const existingByCh = new Map<string, (typeof existing)[number]>()
+      for (const e of existing) existingByCh.set(e.channelName, e)
+
+      const nextByCh = new Map(cleaned.map((r) => [r.channelName, r]))
+
+      let inserted = 0
+      let updated = 0
+      let deleted = 0
+
+      // INSERT 또는 UPDATE
+      for (const r of cleaned) {
+        const existRow = existingByCh.get(r.channelName)
+        if (existRow) {
+          // 변경 사항 비교 — 모두 같으면 skip
+          if (
+            existRow.productCode === r.productCode &&
+            existRow.brandName === brandName &&
+            existRow.productName === productName &&
+            existRow.isComposite === isComposite
+          ) {
+            continue
+          }
+          await tx
+            .update(productMaster)
+            .set({
+              productCode: r.productCode,
+              brandName,
+              productName,
+              isComposite,
+              updatedAt: new Date(),
+            })
+            .where(eq(productMaster.id, existRow.id))
+          updated += 1
+        } else {
+          await tx.insert(productMaster).values({
+            sabangnetCode,
+            brandName,
+            channelName: r.channelName,
+            productCode: r.productCode,
+            productName,
+            isComposite,
+          })
+          inserted += 1
+        }
+      }
+
+      // DELETE — 기존에 있었으나 새 입력에 없는 채널 행
+      for (const e of existing) {
+        if (!nextByCh.has(e.channelName)) {
+          await tx.delete(productMaster).where(eq(productMaster.id, e.id))
+          deleted += 1
+        }
+      }
+
+      return { inserted, updated, deleted }
+    })
+
+    revalidatePath(PATH)
+    return result
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw new Error(
+        '저장 실패 — 사방넷×채널 페어 또는 상품코드 중복입니다',
+      )
+    }
+    throw err
+  }
+}
+
+/**
  * 단건 등록. product_code UNIQUE 위반 시 사용자 친화 메시지로 Error throw.
  * UI 측에서 try/catch 후 폼 상단 Alert + 인라인 FormMessage 갱신.
  */
@@ -125,9 +274,10 @@ export async function createProduct(input: ProductInput): Promise<ProductRow> {
     const [row] = await db
       .insert(productMaster)
       .values({
-        productCode: v.productCode,
-        channelName: v.channelName,
+        sabangnetCode: v.sabangnetCode,
         brandName: v.brandName,
+        channelName: v.channelName,
+        productCode: v.productCode,
         productName: v.productName,
         isComposite: v.isComposite,
       })
@@ -136,7 +286,9 @@ export async function createProduct(input: ProductInput): Promise<ProductRow> {
     return row
   } catch (err) {
     if (isUniqueViolation(err)) {
-      throw new Error(`이미 등록된 상품코드입니다: ${v.productCode}`)
+      throw new Error(
+        `이미 등록된 페어입니다: (사방넷 "${v.sabangnetCode}", 채널 "${v.channelName}") 또는 상품코드 "${v.productCode}" 중복`,
+      )
     }
     throw err
   }
@@ -177,9 +329,9 @@ export async function updateProduct(
     return row
   } catch (err) {
     if (isUniqueViolation(err)) {
-      throw new Error(
-        `이미 등록된 상품코드입니다: ${parsed.productCode ?? ''}`.trim(),
-      )
+      const dup =
+        parsed.sabangnetCode ?? parsed.productCode ?? ''
+      throw new Error(`이미 등록된 코드입니다: ${dup}`.trim())
     }
     throw err
   }
@@ -215,6 +367,54 @@ export async function checkProductCodeUnique(
   if (code.length === 0) return false
 
   const conditions: SQL[] = [eq(productMaster.productCode, code)]
+  if (typeof excludeId === 'number' && Number.isInteger(excludeId) && excludeId > 0) {
+    conditions.push(ne(productMaster.id, excludeId))
+  }
+
+  const rows = await db
+    .select({ id: productMaster.id })
+    .from(productMaster)
+    .where(and(...conditions))
+    .limit(1)
+
+  return rows.length === 0
+}
+
+/**
+ * 같은 사방넷코드의 모든 (채널, 상품코드) 행을 반환.
+ * 수정 Dialog 진입 시 그룹 전체를 로드하기 위한 함수.
+ * 결과는 channelName ASC 정렬.
+ */
+export async function getProductsBySabangnet(
+  sabangnetCode: string,
+): Promise<ProductRow[]> {
+  const sn = sabangnetCode.trim()
+  if (sn.length === 0) return []
+  return db
+    .select()
+    .from(productMaster)
+    .where(eq(productMaster.sabangnetCode, sn))
+    .orderBy(asc(productMaster.channelName))
+}
+
+/**
+ * (사방넷, 채널) 조합 중복 검증 (v1.2 wide format).
+ * 같은 사방넷코드는 여러 채널에 등록 가능하므로 사방넷 단독 UNIQUE 가 아니라
+ * 채널과 페어로 검증한다.
+ */
+export async function checkSabangnetChannelUnique(
+  sabangnetCode: string,
+  channelName: string,
+  excludeId?: number,
+): Promise<boolean> {
+  const sn = sabangnetCode.trim()
+  const ch = channelName.trim()
+  if (sn.length === 0 || ch.length === 0) return false
+
+  const conditions: SQL[] = [
+    eq(productMaster.sabangnetCode, sn),
+    eq(productMaster.channelName, ch),
+  ]
   if (typeof excludeId === 'number' && Number.isInteger(excludeId) && excludeId > 0) {
     conditions.push(ne(productMaster.id, excludeId))
   }
@@ -294,20 +494,24 @@ export async function importProducts(
 
       try {
         if (upsert) {
+          // v1.2: (sabangnet, channel) 복합 UNIQUE 가 새 키.
+          //   - upsert: 같은 페어 발견 시 productCode/brandName/productName/isComposite 덮어쓰기.
+          //   - productCode UNIQUE 충돌은 unique_violation 으로 떨어져 failed 로 누적.
           await tx
             .insert(productMaster)
             .values({
-              productCode: v.productCode,
-              channelName: v.channelName,
+              sabangnetCode: v.sabangnetCode,
               brandName: v.brandName,
+              channelName: v.channelName,
+              productCode: v.productCode,
               productName: v.productName,
               isComposite: v.isComposite,
             })
             .onConflictDoUpdate({
-              target: productMaster.productCode,
+              target: [productMaster.sabangnetCode, productMaster.channelName],
               set: {
-                channelName: v.channelName,
                 brandName: v.brandName,
+                productCode: v.productCode,
                 productName: v.productName,
                 isComposite: v.isComposite,
                 updatedAt: new Date(),
@@ -315,22 +519,38 @@ export async function importProducts(
             })
           result.success += 1
         } else {
-          const inserted = await tx
-            .insert(productMaster)
-            .values({
-              productCode: v.productCode,
-              channelName: v.channelName,
-              brandName: v.brandName,
-              productName: v.productName,
-              isComposite: v.isComposite,
-            })
-            .onConflictDoNothing({ target: productMaster.productCode })
-            .returning({ id: productMaster.id })
+          // v1.2: (sabangnet, channel) 페어 또는 productCode 충돌 시 skip.
+          try {
+            const inserted = await tx
+              .insert(productMaster)
+              .values({
+                sabangnetCode: v.sabangnetCode,
+                brandName: v.brandName,
+                channelName: v.channelName,
+                productCode: v.productCode,
+                productName: v.productName,
+                isComposite: v.isComposite,
+              })
+              .onConflictDoNothing({
+                target: [
+                  productMaster.sabangnetCode,
+                  productMaster.channelName,
+                ],
+              })
+              .returning({ id: productMaster.id })
 
-          if (inserted.length > 0) {
-            result.success += 1
-          } else {
-            result.skipped += 1
+            if (inserted.length > 0) {
+              result.success += 1
+            } else {
+              result.skipped += 1
+            }
+          } catch (err) {
+            if (isUniqueViolation(err)) {
+              // productCode UNIQUE 충돌 → skip
+              result.skipped += 1
+            } else {
+              throw err
+            }
           }
         }
       } catch (err) {
@@ -369,6 +589,7 @@ export type ProductMasterEntry = {
   channelName: string
   brandName: string
   productName: string
+  sabangnetCode: string
 }
 
 export async function getProductMasterMap(): Promise<
@@ -377,6 +598,7 @@ export async function getProductMasterMap(): Promise<
   const rows = await db
     .select({
       productCode: productMaster.productCode,
+      sabangnetCode: productMaster.sabangnetCode,
       isComposite: productMaster.isComposite,
       channelName: productMaster.channelName,
       brandName: productMaster.brandName,
@@ -386,12 +608,213 @@ export async function getProductMasterMap(): Promise<
 
   const record: Record<string, ProductMasterEntry> = {}
   for (const r of rows) {
+    // productCode 가 UNIQUE 이므로 중복 키 충돌 없음.
     record[r.productCode] = {
       isComposite: r.isComposite,
       channelName: r.channelName,
       brandName: r.brandName,
       productName: r.productName,
+      sabangnetCode: r.sabangnetCode,
     }
   }
   return record
+}
+
+/* ----------------------------------------------------------------------------
+ *  product_channels (v1.2 Wide format 채널 마스터)
+ * -------------------------------------------------------------------------- */
+
+export type ChannelRow = ProductChannel
+
+/** 채널 목록 — display_order ASC, name ASC. */
+export async function listChannels(): Promise<ChannelRow[]> {
+  return db
+    .select()
+    .from(productChannels)
+    .orderBy(asc(productChannels.displayOrder), asc(productChannels.name))
+}
+
+/** 채널명 배열만 (Wide 양식 다운로드용 헤더 + Combobox 옵션). */
+export async function listChannelNames(): Promise<string[]> {
+  const rows = await listChannels()
+  return rows.map((r) => r.name)
+}
+
+/** 채널 신규 추가. UNIQUE 위반 시 친화적 메시지. */
+export async function createChannel(
+  name: string,
+  displayOrder?: number,
+): Promise<ChannelRow> {
+  const trimmed = name.trim()
+  if (trimmed.length === 0) throw new Error('채널명을 입력하세요')
+  if (trimmed.length > 128) throw new Error('채널명은 128자 이내여야 합니다')
+
+  // displayOrder 가 없으면 마지막에 추가 (max + 1)
+  const order =
+    typeof displayOrder === 'number' && Number.isFinite(displayOrder)
+      ? Math.floor(displayOrder)
+      : await (async () => {
+          const max = await db
+            .select({ max: sql<number | null>`max(${productChannels.displayOrder})::int` })
+            .from(productChannels)
+          return (max[0]?.max ?? 0) + 1
+        })()
+
+  try {
+    const [row] = await db
+      .insert(productChannels)
+      .values({ name: trimmed, displayOrder: order })
+      .returning()
+    revalidatePath(PATH)
+    return row
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw new Error(`이미 등록된 채널명입니다: ${trimmed}`)
+    }
+    throw err
+  }
+}
+
+/**
+ * 채널명 변경 — cascade rename.
+ * product_master.channel_name 의 oldName 행을 모두 newName 으로 업데이트한다.
+ * 트랜잭션으로 묶음.
+ *
+ * 충돌 검사:
+ *   - newName 으로 product_master 에 이미 (sabangnet, newName) 페어가 있는데
+ *     동시에 (sabangnet, oldName) 페어도 있으면 cascade update 시 UNIQUE 위반.
+ *   - 위와 같은 충돌이 1건이라도 있으면 거부 + 사유 반환.
+ */
+export async function renameChannel(
+  id: number,
+  newName: string,
+): Promise<ChannelRow> {
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error('id 가 필요합니다')
+  }
+  const next = newName.trim()
+  if (next.length === 0) throw new Error('새 채널명을 입력하세요')
+  if (next.length > 128) throw new Error('채널명은 128자 이내여야 합니다')
+
+  return await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(productChannels)
+      .where(eq(productChannels.id, id))
+      .limit(1)
+    if (!existing) throw new Error(`채널을 찾을 수 없습니다 (id=${id})`)
+
+    if (existing.name === next) {
+      return existing
+    }
+
+    // 다른 채널이 next 이름을 이미 사용 중인지
+    const [conflict] = await tx
+      .select({ id: productChannels.id })
+      .from(productChannels)
+      .where(and(eq(productChannels.name, next), ne(productChannels.id, id)))
+      .limit(1)
+    if (conflict) {
+      throw new Error(`이미 다른 채널이 사용 중인 이름입니다: ${next}`)
+    }
+
+    // product_master cascade 충돌 검사:
+    //   같은 사방넷코드에 (oldName) 행과 (newName) 행이 모두 있으면 안 됨.
+    const dupRows = await tx
+      .select({ sabangnetCode: productMaster.sabangnetCode })
+      .from(productMaster)
+      .where(
+        and(
+          eq(productMaster.channelName, existing.name),
+          inArray(
+            productMaster.sabangnetCode,
+            tx
+              .select({ sn: productMaster.sabangnetCode })
+              .from(productMaster)
+              .where(eq(productMaster.channelName, next)),
+          ),
+        ),
+      )
+
+    if (dupRows.length > 0) {
+      const sample = dupRows.slice(0, 5).map((r) => r.sabangnetCode).join(', ')
+      throw new Error(
+        `대상 채널 "${next}" 로 변경 시 ${dupRows.length}건의 사방넷코드가 충돌합니다 (예: ${sample}). product_master 에서 먼저 정리하세요.`,
+      )
+    }
+
+    // cascade update: product_master.channel_name = old → new
+    await tx
+      .update(productMaster)
+      .set({ channelName: next, updatedAt: new Date() })
+      .where(eq(productMaster.channelName, existing.name))
+
+    const [updated] = await tx
+      .update(productChannels)
+      .set({ name: next, updatedAt: new Date() })
+      .where(eq(productChannels.id, id))
+      .returning()
+
+    return updated
+  }).then((row) => {
+    revalidatePath(PATH)
+    return row
+  })
+}
+
+/**
+ * 채널 삭제. product_master 에서 사용 중이면 차단.
+ */
+export async function deleteChannel(
+  id: number,
+): Promise<{ ok: true } | { ok: false; reason: string; usageCount: number }> {
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error('id 가 필요합니다')
+  }
+
+  const [existing] = await db
+    .select()
+    .from(productChannels)
+    .where(eq(productChannels.id, id))
+    .limit(1)
+  if (!existing) throw new Error(`채널을 찾을 수 없습니다 (id=${id})`)
+
+  const [usage] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(productMaster)
+    .where(eq(productMaster.channelName, existing.name))
+  const usageCount = usage?.count ?? 0
+
+  if (usageCount > 0) {
+    return {
+      ok: false,
+      reason: `채널 "${existing.name}" 은 ${usageCount}건의 상품에서 사용 중입니다. 먼저 상품을 정리하거나 다른 채널로 옮긴 후 삭제하세요.`,
+      usageCount,
+    }
+  }
+
+  await db.delete(productChannels).where(eq(productChannels.id, id))
+  revalidatePath(PATH)
+  return { ok: true }
+}
+
+/** 채널 사용 현황 (display_order 순으로 정렬 + 각 채널별 상품 수). */
+export async function listChannelsWithUsage(): Promise<
+  Array<ChannelRow & { usageCount: number }>
+> {
+  const rows = await db
+    .select({
+      id: productChannels.id,
+      name: productChannels.name,
+      displayOrder: productChannels.displayOrder,
+      createdAt: productChannels.createdAt,
+      updatedAt: productChannels.updatedAt,
+      usageCount: sql<number>`(
+        SELECT count(*)::int FROM ${productMaster}
+        WHERE ${productMaster.channelName} = ${productChannels.name}
+      )`,
+    })
+    .from(productChannels)
+    .orderBy(asc(productChannels.displayOrder), asc(productChannels.name))
+  return rows
 }

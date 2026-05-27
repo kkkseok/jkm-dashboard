@@ -1,0 +1,2 @@
+ALTER TABLE "product_master" ADD COLUMN "sabangnet_code" text NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "product_master_sabangnet_code_uniq" ON "product_master" USING btree ("sabangnet_code");

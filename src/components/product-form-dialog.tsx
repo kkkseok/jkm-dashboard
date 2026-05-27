@@ -1,11 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { useForm, type Resolver } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
 import { toast } from "sonner"
-import { z } from "zod"
-import { CheckIcon, ChevronsUpDownIcon } from "lucide-react"
+import { PlusIcon, Trash2Icon } from "lucide-react"
 
 import {
   Dialog,
@@ -14,243 +11,315 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { cn } from "@/lib/utils"
-import type { ProductInput } from "@/lib/products/schema"
-import {
-  checkProductCodeUnique,
-  createProduct,
-  updateProduct,
-  type ProductRow,
-} from "@/lib/products/actions"
+import { saveProductGroup } from "@/lib/products/actions"
 
 /**
- * 신규/수정 공용 Dialog.
+ * 사방넷 그룹 단위 신규/수정 공용 Dialog (v1.2 Wide format).
  *
- * 02_uiux_products §4-5 와 1:1 매핑:
- *   - 상품코드: onBlur 시 `checkProductCodeUnique` 호출 + 인라인 에러
- *   - 채널명: Combobox (자유 입력 + 자동완성)
- *   - 브랜드명/상품명: 일반 Input
- *   - 구분: RadioGroup (단품/복합) — 기본값 미선택 (필수, 미선택 시 submit 비활성)
+ * 사용자 입력:
+ *   - 사방넷코드 (edit 모드에서는 readOnly)
+ *   - 브랜드명 / 상품명 (자유 입력)
+ *   - 구분 RadioGroup (단품/복합)
+ *   - 채널별 상품코드 dynamic rows
+ *       · "채널" Select — 등록된 채널 마스터(`channelOptions`)에서만 선택
+ *       · "상품코드" Input — 영문/숫자/-/_ regex 검증
+ *       · 행 삭제 버튼
+ *       · "+ 채널 추가" 버튼
  *
- * submit:
- *   - mode="create" → createProduct
- *   - mode="edit"   → updateProduct (productCode readOnly)
- *   - unique_violation 캐치 → 폼 상단 Alert + toast.error
+ * 검증:
+ *   - 같은 채널이 두 번 추가되면 인라인 에러
+ *   - 상품코드 형식 위반 인라인 에러 (regex /^[\w-]+$/, max 64)
+ *   - 비어있는 칸 인라인 에러
+ *
+ * 저장: `saveProductGroup(input)` — mode 무관 (sabangnetCode 가 같으면 자동 merge).
  */
 
-/**
- * Form 전용 zod 스키마. `isComposite` 는 RadioGroup 의 "선택 안 함" 상태를
- * 표현하기 위해 string("true"/"false") 으로 받고, submit 시 boolean 으로 변환.
- */
-const formSchema = z.object({
-  productCode: z
-    .string()
-    .trim()
-    .min(1, "상품코드를 입력하세요")
-    .max(64, "상품코드는 64자 이내로 입력하세요")
-    .regex(/^[\w-]+$/, "영문/숫자/하이픈/언더바만 입력 가능합니다"),
-  channelName: z
-    .string()
-    .trim()
-    .min(1, "채널명을 입력하세요")
-    .max(128, "채널명은 128자 이내로 입력하세요"),
-  brandName: z
-    .string()
-    .trim()
-    .min(1, "브랜드명을 입력하세요")
-    .max(64, "브랜드명은 64자 이내로 입력하세요"),
-  productName: z
-    .string()
-    .trim()
-    .min(1, "상품명을 입력하세요")
-    .max(128, "상품명은 128자 이내로 입력하세요"),
-  isCompositeStr: z.enum(["true", "false"], {
-    message: "구분(단품/복합)을 선택하세요",
-  }),
-})
+export type ProductFormChannelRow = {
+  /** 기존 행이면 product_master.id, 새 행이면 undefined */
+  id?: number
+  channelName: string
+  productCode: string
+}
 
-type FormShape = z.input<typeof formSchema>
+export type ProductFormGroup = {
+  sabangnetCode: string
+  brandName: string
+  productName: string
+  isComposite: boolean
+  rows: ProductFormChannelRow[]
+}
 
 export type ProductFormDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   mode: "create" | "edit"
-  /** edit 모드 시 대상 행 (id + 기존 값). create 모드면 undefined. */
-  initial?: ProductRow | null
-  /** 채널명 Combobox 자동완성 옵션 (기등록 채널 union). */
+  /** edit 모드 시 그룹 전체. create 모드면 undefined. */
+  initialGroup?: ProductFormGroup | null
+  /** product_channels 등록 채널 마스터 (전체 옵션). 24개 시드. */
   channelOptions: string[]
   /** 성공 시 호출 — 보통 router.refresh() */
   onSaved?: () => void
 }
 
-function toFormValues(initial?: ProductRow | null): FormShape {
+type RowState = ProductFormChannelRow & {
+  /** 클라이언트 측 안정 key (id 가 없는 새 행 구분용) */
+  uid: string
+}
+
+type FieldErrors = {
+  sabangnetCode?: string
+  brandName?: string
+  productName?: string
+  isComposite?: string
+  rows?: Array<{ channelName?: string; productCode?: string }>
+  rowsTop?: string
+}
+
+const PRODUCT_CODE_PATTERN = /^[\w-]+$/
+
+function emptyRow(): RowState {
   return {
-    productCode: initial?.productCode ?? "",
-    channelName: initial?.channelName ?? "",
-    brandName: initial?.brandName ?? "",
-    productName: initial?.productName ?? "",
-    isCompositeStr:
-      initial == null
-        ? ("" as unknown as "true" | "false")
-        : initial.isComposite
-          ? "true"
-          : "false",
+    uid: cryptoRandomId(),
+    id: undefined,
+    channelName: "",
+    productCode: "",
   }
+}
+
+function cryptoRandomId(): string {
+  // crypto.randomUUID 가능한 환경(브라우저/Next 클라이언트). fallback for safety.
+  if (
+    typeof globalThis !== "undefined" &&
+    typeof globalThis.crypto !== "undefined" &&
+    typeof globalThis.crypto.randomUUID === "function"
+  ) {
+    return globalThis.crypto.randomUUID()
+  }
+  return `r-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`
+}
+
+function rowsFromInitial(initial?: ProductFormGroup | null): RowState[] {
+  if (!initial || initial.rows.length === 0) return [emptyRow()]
+  return initial.rows.map((r) => ({
+    uid: cryptoRandomId(),
+    id: r.id,
+    channelName: r.channelName,
+    productCode: r.productCode,
+  }))
 }
 
 export function ProductFormDialog({
   open,
   onOpenChange,
   mode,
-  initial,
+  initialGroup,
   channelOptions,
   onSaved,
 }: ProductFormDialogProps) {
-  const [serverError, setServerError] = React.useState<string | null>(null)
-  const [codeUniqueError, setCodeUniqueError] = React.useState<string | null>(
-    null,
+  const [sabangnetCode, setSabangnetCode] = React.useState(
+    initialGroup?.sabangnetCode ?? "",
   )
-  const [codeCheckPending, setCodeCheckPending] = React.useState(false)
-  const [channelPopoverOpen, setChannelPopoverOpen] = React.useState(false)
+  const [brandName, setBrandName] = React.useState(
+    initialGroup?.brandName ?? "",
+  )
+  const [productName, setProductName] = React.useState(
+    initialGroup?.productName ?? "",
+  )
+  const [isCompositeStr, setIsCompositeStr] = React.useState<
+    "true" | "false" | ""
+  >(
+    initialGroup == null
+      ? ""
+      : initialGroup.isComposite
+        ? "true"
+        : "false",
+  )
+  const [rows, setRows] = React.useState<RowState[]>(rowsFromInitial(initialGroup))
+  const [errors, setErrors] = React.useState<FieldErrors>({})
+  const [serverError, setServerError] = React.useState<string | null>(null)
+  const [submitting, setSubmitting] = React.useState(false)
 
-  const form = useForm<FormShape>({
-    // zod v4 → resolver overload 우회 (cal-amount-form-dialog 와 동일 패턴).
-    resolver: zodResolver(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      formSchema as unknown as any,
-    ) as unknown as Resolver<FormShape>,
-    defaultValues: toFormValues(initial),
-    mode: "onBlur",
-  })
+  const sabangnetInputRef = React.useRef<HTMLInputElement>(null)
+  const brandInputRef = React.useRef<HTMLInputElement>(null)
 
-  // open/initial 변경 시 reset
+  // open 토글 시 reset
   const prevOpenRef = React.useRef(false)
   React.useEffect(() => {
     if (open && !prevOpenRef.current) {
-      form.reset(toFormValues(initial))
-      const id = window.setTimeout(() => {
-        setServerError(null)
-        setCodeUniqueError(null)
-      }, 0)
+      setSabangnetCode(initialGroup?.sabangnetCode ?? "")
+      setBrandName(initialGroup?.brandName ?? "")
+      setProductName(initialGroup?.productName ?? "")
+      setIsCompositeStr(
+        initialGroup == null
+          ? ""
+          : initialGroup.isComposite
+            ? "true"
+            : "false",
+      )
+      setRows(rowsFromInitial(initialGroup))
+      setErrors({})
+      setServerError(null)
       prevOpenRef.current = true
-      return () => window.clearTimeout(id)
     }
-    if (!open) {
-      prevOpenRef.current = false
-    }
+    if (!open) prevOpenRef.current = false
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, JSON.stringify(initial)])
+  }, [open, JSON.stringify(initialGroup)])
 
-  // 첫 필드 포커스
+  // 첫 포커스
   React.useEffect(() => {
     if (!open) return
     const id = window.setTimeout(() => {
-      const target = mode === "edit" ? "channelName" : "productCode"
-      form.setFocus(target as keyof FormShape)
+      if (mode === "edit") {
+        brandInputRef.current?.focus()
+      } else {
+        sabangnetInputRef.current?.focus()
+      }
     }, 50)
     return () => window.clearTimeout(id)
-  }, [open, mode, form])
+  }, [open, mode])
 
-  /** 상품코드 중복 검증 — onBlur 시점에 한 번 */
-  async function handleCheckUnique(code: string) {
-    if (mode === "edit") return // PK readonly
-    const trimmed = code.trim()
-    if (trimmed.length === 0) {
-      setCodeUniqueError(null)
-      return
-    }
-    // 형식 위반은 zod 가 처리 — 통과한 값만 서버 호출
-    if (!/^[\w-]+$/.test(trimmed) || trimmed.length > 64) {
-      setCodeUniqueError(null)
-      return
-    }
-    setCodeCheckPending(true)
-    try {
-      // 본 함수는 mode === "edit" 인 경우 위에서 early-return 했으므로
-      // 여기 도달 시 mode === "create" — excludeId 불필요.
-      const ok = await checkProductCodeUnique(trimmed)
-      setCodeUniqueError(ok ? null : "이미 등록된 상품코드입니다")
-    } catch {
-      // network 실패 등은 silent — submit 시 unique_violation 캐치로 최종 방어
-      setCodeUniqueError(null)
-    } finally {
-      setCodeCheckPending(false)
-    }
+  function updateRow(uid: string, patch: Partial<ProductFormChannelRow>) {
+    setRows((prev) =>
+      prev.map((r) => (r.uid === uid ? { ...r, ...patch } : r)),
+    )
   }
 
-  async function onSubmit(values: FormShape) {
-    setServerError(null)
+  function addRow() {
+    setRows((prev) => [...prev, emptyRow()])
+  }
 
-    const isComposite = values.isCompositeStr === "true"
-    const input: ProductInput = {
-      productCode: values.productCode.trim(),
-      channelName: values.channelName.trim(),
-      brandName: values.brandName.trim(),
-      productName: values.productName.trim(),
-      isComposite,
+  function removeRow(uid: string) {
+    setRows((prev) => {
+      if (prev.length <= 1) {
+        // 마지막 한 행은 비우기만
+        return [emptyRow()]
+      }
+      return prev.filter((r) => r.uid !== uid)
+    })
+  }
+
+  function validate(): FieldErrors {
+    const next: FieldErrors = {}
+
+    if (sabangnetCode.trim().length === 0) {
+      next.sabangnetCode = "사방넷코드를 입력하세요"
+    }
+    if (brandName.trim().length === 0) {
+      next.brandName = "브랜드명을 입력하세요"
+    }
+    if (productName.trim().length === 0) {
+      next.productName = "상품명을 입력하세요"
+    }
+    if (isCompositeStr !== "true" && isCompositeStr !== "false") {
+      next.isComposite = "구분(단품/복합)을 선택하세요"
     }
 
-    try {
-      if (mode === "edit") {
-        if (!initial) throw new Error("수정 대상이 없습니다")
-        // productCode 는 readonly 이므로 patch 에서 제외
-        const { productCode: _pc, ...patch } = input
-        void _pc
-        await updateProduct(initial.id, patch)
-        toast.success(`수정됨: ${initial.productCode}`)
+    const rowErrors: NonNullable<FieldErrors["rows"]> = rows.map(() => ({}))
+    const channelSeen = new Map<string, number>()
+
+    rows.forEach((r, idx) => {
+      const ch = r.channelName.trim()
+      const pc = r.productCode.trim()
+      if (ch.length === 0) {
+        rowErrors[idx].channelName = "채널을 선택하세요"
       } else {
-        const row = await createProduct(input)
-        toast.success(`추가됨: ${row.productCode}`)
+        const prev = channelSeen.get(ch)
+        if (prev !== undefined) {
+          rowErrors[idx].channelName = `같은 채널이 ${prev + 1}번째 행에서 이미 선택되었습니다`
+        } else {
+          channelSeen.set(ch, idx)
+        }
       }
+      if (pc.length === 0) {
+        rowErrors[idx].productCode = "상품코드를 입력하세요"
+      } else if (pc.length > 64) {
+        rowErrors[idx].productCode = "상품코드는 64자 이내"
+      } else if (!PRODUCT_CODE_PATTERN.test(pc)) {
+        rowErrors[idx].productCode = "영문/숫자/-/_ 만 입력 가능합니다"
+      }
+    })
+
+    const hasRowError = rowErrors.some(
+      (e) => e.channelName != null || e.productCode != null,
+    )
+    if (hasRowError) {
+      next.rows = rowErrors
+    }
+
+    return next
+  }
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setServerError(null)
+    const v = validate()
+    setErrors(v)
+    const hasErr =
+      v.sabangnetCode != null ||
+      v.brandName != null ||
+      v.productName != null ||
+      v.isComposite != null ||
+      v.rowsTop != null ||
+      (v.rows?.some((r) => r.channelName != null || r.productCode != null) ??
+        false)
+    if (hasErr) {
+      toast.error("입력값을 확인해주세요")
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const result = await saveProductGroup({
+        sabangnetCode: sabangnetCode.trim(),
+        brandName: brandName.trim(),
+        productName: productName.trim(),
+        isComposite: isCompositeStr === "true",
+        rows: rows.map((r) => ({
+          channelName: r.channelName.trim(),
+          productCode: r.productCode.trim(),
+        })),
+      })
+      const parts: string[] = []
+      if (result.inserted > 0) parts.push(`추가 ${result.inserted}건`)
+      if (result.updated > 0) parts.push(`수정 ${result.updated}건`)
+      if (result.deleted > 0) parts.push(`삭제 ${result.deleted}건`)
+      const summary = parts.length === 0 ? "변경 사항 없음" : parts.join(" · ")
+      toast.success(`${sabangnetCode.trim()} 저장 — ${summary}`)
       onSaved?.()
       onOpenChange(false)
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다"
       setServerError(message)
-      // race condition (다른 사용자가 동시 등록) → 인라인 에러도 갱신
-      if (message.includes("이미 등록된 상품코드")) {
-        setCodeUniqueError("이미 등록된 상품코드입니다")
-      }
       toast.error("저장 실패")
+    } finally {
+      setSubmitting(false)
     }
   }
 
-  const title = mode === "edit" ? "상품 수정" : "상품 추가"
-  const submitDisabled =
-    form.formState.isSubmitting ||
-    codeCheckPending ||
-    codeUniqueError !== null ||
-    !form.watch("isCompositeStr")
+  const title = mode === "edit" ? "상품 그룹 수정" : "상품 그룹 추가"
+
+  // 이미 선택된 채널은 다른 행 Select 옵션에서 disable
+  const selectedChannels = new Set(
+    rows.map((r) => r.channelName.trim()).filter((s) => s.length > 0),
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
@@ -262,274 +331,265 @@ export function ProductFormDialog({
           </Alert>
         )}
 
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit(onSubmit)}
-            className="space-y-4"
-            noValidate
-          >
-            <FormField
-              control={form.control}
-              name="productCode"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    상품코드 <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      readOnly={mode === "edit"}
-                      aria-readonly={mode === "edit" ? "true" : undefined}
-                      aria-required="true"
-                      aria-invalid={codeUniqueError ? "true" : undefined}
-                      placeholder="예: ABC-001"
-                      autoComplete="off"
-                      onBlur={(e) => {
-                        field.onBlur()
-                        void handleCheckUnique(e.currentTarget.value)
-                      }}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                  {codeUniqueError && (
-                    <p className="text-sm text-destructive">
-                      {codeUniqueError}
-                    </p>
-                  )}
-                  {!codeUniqueError && mode === "create" && (
-                    <p className="text-xs text-muted-foreground">
-                      시스템 전체에서 고유. 영문/숫자/하이픈/언더바.
-                    </p>
-                  )}
-                </FormItem>
-              )}
+        <form
+          onSubmit={handleSubmit}
+          className="space-y-4"
+          noValidate
+        >
+          {/* 사방넷코드 */}
+          <div className="space-y-1.5">
+            <Label htmlFor="sabangnet-code">
+              사방넷코드 <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="sabangnet-code"
+              ref={sabangnetInputRef}
+              value={sabangnetCode}
+              onChange={(e) => setSabangnetCode(e.target.value)}
+              readOnly={mode === "edit"}
+              aria-readonly={mode === "edit" ? "true" : undefined}
+              aria-required="true"
+              aria-invalid={errors.sabangnetCode ? "true" : undefined}
+              placeholder="예: SBG-1001"
+              autoComplete="off"
             />
+            {errors.sabangnetCode && (
+              <p className="text-sm text-destructive">{errors.sabangnetCode}</p>
+            )}
+            {mode === "create" && !errors.sabangnetCode && (
+              <p className="text-xs text-muted-foreground">
+                같은 사방넷코드가 이미 있으면 채널이 합쳐집니다 (그룹 단위
+                저장).
+              </p>
+            )}
+          </div>
 
-            <FormField
-              control={form.control}
-              name="channelName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    채널명 <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <ChannelCombobox
-                    value={field.value}
-                    onChange={field.onChange}
-                    onBlur={field.onBlur}
-                    options={channelOptions}
-                    open={channelPopoverOpen}
-                    onOpenChange={setChannelPopoverOpen}
+          {/* 브랜드명 */}
+          <div className="space-y-1.5">
+            <Label htmlFor="brand-name">
+              브랜드명 <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="brand-name"
+              ref={brandInputRef}
+              value={brandName}
+              onChange={(e) => setBrandName(e.target.value)}
+              aria-required="true"
+              aria-invalid={errors.brandName ? "true" : undefined}
+              placeholder="예: 글리치"
+              autoComplete="off"
+            />
+            {errors.brandName && (
+              <p className="text-sm text-destructive">{errors.brandName}</p>
+            )}
+          </div>
+
+          {/* 상품명 */}
+          <div className="space-y-1.5">
+            <Label htmlFor="product-name">
+              상품명 <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="product-name"
+              value={productName}
+              onChange={(e) => setProductName(e.target.value)}
+              aria-required="true"
+              aria-invalid={errors.productName ? "true" : undefined}
+              placeholder="예: 워시팩"
+              autoComplete="off"
+            />
+            {errors.productName && (
+              <p className="text-sm text-destructive">{errors.productName}</p>
+            )}
+          </div>
+
+          {/* 구분 */}
+          <div className="space-y-1.5">
+            <Label>
+              구분 <span className="text-destructive">*</span>
+            </Label>
+            <RadioGroup
+              value={isCompositeStr || undefined}
+              onValueChange={(v: unknown) =>
+                setIsCompositeStr(v as "true" | "false")
+              }
+              aria-required="true"
+              aria-invalid={errors.isComposite ? "true" : undefined}
+              className="flex gap-6"
+            >
+              <RadioGroupItem id="isComposite-single" value="false">
+                단품
+              </RadioGroupItem>
+              <RadioGroupItem id="isComposite-composite" value="true">
+                복합
+              </RadioGroupItem>
+            </RadioGroup>
+            {errors.isComposite && (
+              <p className="text-sm text-destructive">{errors.isComposite}</p>
+            )}
+          </div>
+
+          {/* 채널별 상품코드 dynamic rows */}
+          <div className="space-y-2">
+            <div className="flex items-end justify-between">
+              <Label>
+                채널별 상품코드 <span className="text-destructive">*</span>
+              </Label>
+              <span className="text-xs text-muted-foreground">
+                {rows.length}개 채널 / 등록 가능 {channelOptions.length}개
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {rows.map((r, idx) => {
+                const rowErr = errors.rows?.[idx]
+                return (
+                  <ChannelRowItem
+                    key={r.uid}
+                    index={idx}
+                    row={r}
+                    onChange={(patch) => updateRow(r.uid, patch)}
+                    onRemove={() => removeRow(r.uid)}
+                    canRemove={rows.length > 1}
+                    channelOptions={channelOptions}
+                    disabledChannels={selectedChannels}
+                    errors={rowErr}
                   />
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                )
+              })}
+            </div>
 
-            <FormField
-              control={form.control}
-              name="brandName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    브랜드명 <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      aria-required="true"
-                      placeholder="예: 글리치"
-                      autoComplete="off"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={addRow}
+              disabled={selectedChannels.size >= channelOptions.length}
+              aria-label="채널 행 추가"
+            >
+              <PlusIcon />
+              채널 추가
+            </Button>
+            {selectedChannels.size >= channelOptions.length && (
+              <p className="text-xs text-muted-foreground">
+                등록 가능한 채널을 모두 추가했습니다.
+              </p>
+            )}
+          </div>
 
-            <FormField
-              control={form.control}
-              name="productName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    상품명 <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      aria-required="true"
-                      placeholder="예: 워시팩"
-                      autoComplete="off"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="isCompositeStr"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    구분 <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <RadioGroup
-                      value={field.value || undefined}
-                      onValueChange={(v: unknown) =>
-                        field.onChange(v as string)
-                      }
-                      aria-required="true"
-                      className="flex gap-6"
-                    >
-                      <RadioGroupItem id="isComposite-single" value="false">
-                        단품
-                      </RadioGroupItem>
-                      <RadioGroupItem id="isComposite-composite" value="true">
-                        복합
-                      </RadioGroupItem>
-                    </RadioGroup>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                disabled={form.formState.isSubmitting}
-              >
-                취소
-              </Button>
-              <Button type="submit" disabled={submitDisabled}>
-                {form.formState.isSubmitting ? "저장 중…" : "저장"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={submitting}
+            >
+              취소
+            </Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "저장 중…" : "저장"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   )
 }
 
 /* ============================================================
- * ChannelCombobox — Popover + Command + 자유 입력
+ * ChannelRowItem — 채널 Select + 상품코드 Input + 행 삭제 버튼
  * ============================================================ */
 
-function ChannelCombobox({
-  value,
+function ChannelRowItem({
+  index,
+  row,
   onChange,
-  onBlur,
-  options,
-  open,
-  onOpenChange,
+  onRemove,
+  canRemove,
+  channelOptions,
+  disabledChannels,
+  errors,
 }: {
-  value: string
-  onChange: (next: string) => void
-  onBlur: () => void
-  options: string[]
-  open: boolean
-  onOpenChange: (open: boolean) => void
+  index: number
+  row: ProductFormChannelRow
+  onChange: (patch: Partial<ProductFormChannelRow>) => void
+  onRemove: () => void
+  canRemove: boolean
+  channelOptions: string[]
+  disabledChannels: Set<string>
+  errors: { channelName?: string; productCode?: string } | undefined
 }) {
-  const [search, setSearch] = React.useState("")
-
-  const trimmedSearch = search.trim()
-  const lower = trimmedSearch.toLowerCase()
-  const filtered = React.useMemo(() => {
-    if (trimmedSearch.length === 0) return options
-    return options.filter((o) => o.toLowerCase().includes(lower))
-  }, [options, trimmedSearch, lower])
-
-  const isNew =
-    trimmedSearch.length > 0 &&
-    !options.some((o) => o.toLowerCase() === lower)
+  const currentValue = row.channelName.trim()
+  // 현재 행이 이미 선택한 채널은 본인 행에서는 항상 활성화돼야 함.
+  const isOptionDisabled = (opt: string) =>
+    opt !== currentValue && disabledChannels.has(opt)
 
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger
-        render={
-          <Button
-            type="button"
-            variant="outline"
-            aria-expanded={open}
-            aria-haspopup="listbox"
-            onBlur={onBlur}
-            className={cn(
-              "w-full justify-between font-normal",
-              !value && "text-muted-foreground",
-            )}
+    <div
+      className={cn(
+        "grid grid-cols-[14rem_1fr_auto] items-start gap-2 rounded-md border p-2",
+      )}
+    >
+      <div className="space-y-1">
+        <Select
+          value={currentValue || undefined}
+          onValueChange={(v: unknown) =>
+            onChange({ channelName: String(v) })
+          }
+        >
+          <SelectTrigger
+            aria-label={`${index + 1}번째 행 채널 선택`}
+            aria-invalid={errors?.channelName ? "true" : undefined}
+            className="w-full"
           >
-            <span className="truncate">{value || "채널을 선택하거나 입력하세요"}</span>
-            <ChevronsUpDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
-          </Button>
-        }
-      />
-      <PopoverContent className="w-[--anchor-width] p-0" align="start">
-        <Command shouldFilter={false}>
-          <CommandInput
-            placeholder="채널 검색 또는 새 채널 입력…"
-            value={search}
-            onValueChange={setSearch}
-          />
-          <CommandList>
-            <CommandEmpty>
-              {trimmedSearch.length === 0
-                ? "등록된 채널이 없습니다."
-                : "일치하는 채널이 없습니다."}
-            </CommandEmpty>
-            {filtered.length > 0 && (
-              <CommandGroup heading="기존 채널">
-                {filtered.map((opt) => (
-                  <CommandItem
-                    key={opt}
-                    value={opt}
-                    onSelect={() => {
-                      onChange(opt)
-                      setSearch("")
-                      onOpenChange(false)
-                    }}
-                    data-checked={value === opt ? true : undefined}
-                  >
-                    <span className="flex-1 truncate" title={opt}>
-                      {opt}
-                    </span>
-                    {value === opt && (
-                      <CheckIcon
-                        aria-hidden="true"
-                        className="ml-2 size-4 opacity-100"
-                      />
-                    )}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
+            <SelectValue placeholder="채널 선택" />
+          </SelectTrigger>
+          <SelectContent>
+            {channelOptions.length === 0 && (
+              <SelectItem value="__empty__" disabled>
+                등록된 채널이 없습니다
+              </SelectItem>
             )}
-            {isNew && (
-              <CommandGroup heading="새로 추가">
-                <CommandItem
-                  value={`__new__:${trimmedSearch}`}
-                  onSelect={() => {
-                    onChange(trimmedSearch)
-                    setSearch("")
-                    onOpenChange(false)
-                  }}
-                >
-                  <span className="text-muted-foreground">
-                    새 채널 추가:{" "}
-                    <b className="text-foreground">{trimmedSearch}</b>
-                  </span>
-                </CommandItem>
-              </CommandGroup>
-            )}
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
+            {channelOptions.map((opt) => (
+              <SelectItem
+                key={opt}
+                value={opt}
+                disabled={isOptionDisabled(opt)}
+              >
+                {opt}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {errors?.channelName && (
+          <p className="text-xs text-destructive">{errors.channelName}</p>
+        )}
+      </div>
+
+      <div className="space-y-1">
+        <Input
+          value={row.productCode}
+          onChange={(e) => onChange({ productCode: e.target.value })}
+          placeholder="상품코드 (예: ABC-001)"
+          aria-label={`${index + 1}번째 행 상품코드`}
+          aria-invalid={errors?.productCode ? "true" : undefined}
+          autoComplete="off"
+        />
+        {errors?.productCode && (
+          <p className="text-xs text-destructive">{errors.productCode}</p>
+        )}
+      </div>
+
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        onClick={onRemove}
+        aria-label={`${index + 1}번째 행 삭제`}
+        disabled={!canRemove}
+      >
+        <Trash2Icon />
+      </Button>
+    </div>
   )
 }
