@@ -39,6 +39,10 @@ export type EnrichedRow = {
   // product 매칭 실패 시 null.
   quantity: number | null
 
+  // 매핑 from product_master (P4 추가) — 단품/복합 구분.
+  // null = 매칭 실패 (UI 에 "미매칭" Badge 노출). 02_uiux_products §5-1.
+  isComposite: boolean | null
+
   // 룩업 (cal_amount × quantity)
   // v1.5 (2026-05-26): extraSettlement 의 의미가 "cal_amount 의 단가 × 판매세트 수량" 으로 변경.
   // v1.6 (2026-05-26): quantity 출처가 product 파일로 명확화.

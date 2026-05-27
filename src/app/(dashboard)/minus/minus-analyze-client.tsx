@@ -70,9 +70,10 @@ import {
 } from "@/components/ui/dialog"
 import { CalAmountFormDialog } from "@/components/cal-amount-form-dialog"
 import { computeProfit } from "@/lib/minus/calc"
-import { enrichMinusData } from "@/lib/minus/pipeline"
+import { enrichMinusData, type ProductMasterMap } from "@/lib/minus/pipeline"
 import type { EnrichedRow, PipelineDiagnostics } from "@/lib/minus/types"
 import { getCalAmountMap } from "@/lib/cal-amount/actions"
+import { getProductMasterMap } from "@/lib/products/actions"
 import { cn } from "@/lib/utils"
 
 /* ============================================================
@@ -83,14 +84,14 @@ const PAGE_SIZE = 100
 const koInt = new Intl.NumberFormat("ko-KR")
 
 /**
- * localStorage 키 (v2 — 2026-05-26).
+ * localStorage 키 (v3 — 2026-05-27).
  * v1 → v2: quantity 의미 변경 (brand.AQ 단품수량 → product.AQ 세트수량) + analyzedFileNames.product 신규.
- * 키가 다르므로 v1 캐시는 자동 무력화된다.
+ * v2 → v3: EnrichedRow.isComposite 신규 필드 (product_master 조인). v2 캐시는 자동 무력화.
  */
-const STORAGE_KEY = "minus:lastAnalysis-v2"
+const STORAGE_KEY = "minus:lastAnalysis-v3"
 
 type PersistedAnalysis = {
-  v: 2
+  v: 3
   rows: RowWithId[]
   diagnostics: PipelineDiagnostics
   analyzedFileNames: { sales: string; revenue: string; product: string }
@@ -103,7 +104,7 @@ function loadPersisted(): PersistedAnalysis | null {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as PersistedAnalysis
-    if (parsed.v !== 2) return null
+    if (parsed.v !== 3) return null
     if (!Array.isArray(parsed.rows) || !parsed.diagnostics) return null
     return parsed
   } catch {
@@ -134,7 +135,7 @@ function clearPersisted(): void {
 /** 한글 깨짐 방지 — UTF-8 BOM */
 const UTF8_BOM = "﻿"
 
-/** 명세 §4-3 "기본 가시성: 표시" 16개 컬럼 (v1.3 — 브랜드명 추가) — CSV 도 이 순서/라벨을 따른다. */
+/** 명세 §4-3 "기본 가시성: 표시" 17개 컬럼 (v1.7 — 구분 추가) — CSV 도 이 순서/라벨을 따른다. */
 const CSV_HEADERS: ReadonlyArray<readonly [keyof EnrichedRow, string]> = [
   ["salesDate", "매출일"],
   ["salesType", "매출구분"],
@@ -142,6 +143,7 @@ const CSV_HEADERS: ReadonlyArray<readonly [keyof EnrichedRow, string]> = [
   ["productCode", "상품코드"],
   ["productName", "상품명"],
   ["brandName", "브랜드명"],
+  ["isComposite", "구분"],
   ["quantity", "판매세트"],
   ["K", "매출액"],
   ["L", "공급가"],
@@ -277,6 +279,13 @@ export function MinusAnalyzeClient() {
     new Set(),
   )
   const [salesTypePopoverOpen, setSalesTypePopoverOpen] = React.useState(false)
+  /**
+   * 구분(단품/복합/미매칭) 단일 선택 필터 — 02_uiux_products §5-2.
+   * "all"=기본(전체), "single"=단품만, "composite"=복합만, "unmatched"=미매칭만
+   */
+  const [productTypeFilter, setProductTypeFilter] = React.useState<
+    "all" | "single" | "composite" | "unmatched"
+  >("all")
 
   // 검색 debounce 300ms
   React.useEffect(() => {
@@ -307,7 +316,7 @@ export function MinusAnalyzeClient() {
     }
     const t = window.setTimeout(() => {
       const result = savePersisted({
-        v: 2,
+        v: 3,
         rows,
         diagnostics,
         analyzedFileNames,
@@ -397,6 +406,7 @@ export function MinusAnalyzeClient() {
     setSearchTerm("")
     setOnlyMissing(false)
     setSelectedSalesTypes(new Set())
+    setProductTypeFilter("all")
     setSlotFile(reuploadPending.slot, reuploadPending.file)
     setReuploadPending(null)
   }
@@ -413,9 +423,17 @@ export function MinusAnalyzeClient() {
       // (1/3) 메시지를 잠깐 보여주고 단계 진행 — 작은 파일에서는 너무 빨라서 단계가 보이지 않으므로 의도적 지연.
       await sleep(150)
 
-      // (2/3) cal_amount 조회 + 매핑/조인
+      // (2/3) cal_amount + product_master 병렬 조회 + 매핑/조인
       setStep({ kind: "running", message: "(2/3) 매핑·조인" })
-      const calAmountMap = await getCalAmountMap()
+      const [calAmountMap, masterRecord] = await Promise.all([
+        getCalAmountMap(),
+        getProductMasterMap(),
+      ])
+      // P3 결정: getProductMasterMap 은 직렬화 안전한 plain object 반환.
+      // 클라이언트에서 Map 으로 복원 후 enrich 에 주입.
+      const productMasterMap: ProductMasterMap = new Map(
+        Object.entries(masterRecord),
+      )
 
       // (3/3) 실제 enrich (파싱+조인+계산)
       setStep({ kind: "running", message: "(3/3) 계산" })
@@ -424,6 +442,7 @@ export function MinusAnalyzeClient() {
         revenueFile,
         productFile,
         calAmountMap,
+        productMasterMap,
       })
 
       // 행에 안정적인 _rowId 부여 (재계산/하이라이트 추적용)
@@ -473,6 +492,7 @@ export function MinusAnalyzeClient() {
     setRateMaxInput("3")
     setRateMode("inside")
     setSelectedSalesTypes(new Set())
+    setProductTypeFilter("all")
   }
 
   /* --------------------------------------------------------
@@ -561,6 +581,13 @@ export function MinusAnalyzeClient() {
         if (r.salesType == null || !selectedSalesTypes.has(r.salesType))
           return false
       }
+      // 구분(단품/복합/미매칭) 필터 — 02_uiux_products §5-2
+      if (productTypeFilter === "single" && r.isComposite !== false)
+        return false
+      if (productTypeFilter === "composite" && r.isComposite !== true)
+        return false
+      if (productTypeFilter === "unmatched" && r.isComposite !== null)
+        return false
 
       // 총마진율 범위 필터. null 행은 양쪽 모드에서 제외 (계산 불가는 별도 토글)
       if (rangeActive) {
@@ -593,6 +620,7 @@ export function MinusAnalyzeClient() {
     rateMax,
     rateMode,
     selectedSalesTypes,
+    productTypeFilter,
   ])
 
   /** 현재 분석 결과에서 매출구분 unique 값과 행 수 — 필터 popover 에 노출. */
@@ -726,6 +754,39 @@ export function MinusAnalyzeClient() {
           )
         },
       },
+      // 구분 (단품/복합/미매칭) — 02_uiux_products §5-1.
+      // 위치: 브랜드명 다음, 판매세트 앞.
+      {
+        accessorKey: "isComposite",
+        id: "isComposite",
+        header: () => <span className="block text-center">구분</span>,
+        enableSorting: true,
+        sortingFn: (a, b) => {
+          // 단품(false=0) < 복합(true=1) < 미매칭(null=2) 순.
+          const order = (v: boolean | null) =>
+            v === false ? 0 : v === true ? 1 : 2
+          return order(a.original.isComposite) - order(b.original.isComposite)
+        },
+        cell: ({ row }) => {
+          const v = row.original.isComposite
+          return (
+            <span className="flex justify-center">
+              {v === false ? (
+                <Badge variant="secondary">단품</Badge>
+              ) : v === true ? (
+                <Badge variant="default">복합</Badge>
+              ) : (
+                <Badge
+                  variant="outline"
+                  className="text-muted-foreground"
+                >
+                  미매칭
+                </Badge>
+              )}
+            </span>
+          )
+        },
+      },
       numericColumn<RowWithId>("quantity", "판매세트", (r) => r.quantity),
       numericColumn<RowWithId>("K", "매출액", (r) => r.K),
       numericColumn<RowWithId>("L", "공급가", (r) => r.L),
@@ -854,6 +915,7 @@ export function MinusAnalyzeClient() {
     rateMax,
     rateMode,
     selectedSalesTypes,
+    productTypeFilter,
     table,
   ])
 
@@ -870,6 +932,10 @@ export function MinusAnalyzeClient() {
       for (const r of filteredRows) {
         const cells = CSV_HEADERS.map(([key]) => {
           const v = r[key]
+          // 구분(isComposite) 컬럼은 한글 변환. null = "미매칭".
+          if (key === "isComposite") {
+            return csvEscape(v === true ? "복합" : v === false ? "단품" : "미매칭")
+          }
           if (v == null) return ""
           if (key === "commissionRate" || key === "totalMarginRate") {
             // 비율 — 0~1 → "xx.x%"
@@ -1221,6 +1287,29 @@ export function MinusAnalyzeClient() {
                 open={salesTypePopoverOpen}
                 onOpenChange={setSalesTypePopoverOpen}
               />
+
+              {/* 구분(단품/복합/미매칭) 필터 — 02_uiux_products §5-2 */}
+              <Select
+                value={productTypeFilter}
+                onValueChange={(v) =>
+                  setProductTypeFilter(
+                    v as "all" | "single" | "composite" | "unmatched",
+                  )
+                }
+              >
+                <SelectTrigger
+                  aria-label="구분 필터 (단품/복합/미매칭)"
+                  className="w-32"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">구분: 전체</SelectItem>
+                  <SelectItem value="single">단품만</SelectItem>
+                  <SelectItem value="composite">복합만</SelectItem>
+                  <SelectItem value="unmatched">미매칭만</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {rateRangeInvalid && (
@@ -1233,7 +1322,8 @@ export function MinusAnalyzeClient() {
               onlyMissing ||
               onlyComputeNull ||
               rangeActive ||
-              selectedSalesTypes.size > 0) && (
+              selectedSalesTypes.size > 0 ||
+              productTypeFilter !== "all") && (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-muted-foreground">
                   적용된 필터:
@@ -1307,6 +1397,24 @@ export function MinusAnalyzeClient() {
                       type="button"
                       onClick={() => setSelectedSalesTypes(new Set())}
                       aria-label="매출구분 필터 해제"
+                      className="ml-1 inline-flex size-4 items-center justify-center rounded hover:bg-foreground/10"
+                    >
+                      <XIcon className="size-3" />
+                    </button>
+                  </Badge>
+                )}
+                {productTypeFilter !== "all" && (
+                  <Badge variant="secondary" className="gap-1 pr-1">
+                    구분:{" "}
+                    {productTypeFilter === "single"
+                      ? "단품만"
+                      : productTypeFilter === "composite"
+                        ? "복합만"
+                        : "미매칭만"}
+                    <button
+                      type="button"
+                      onClick={() => setProductTypeFilter("all")}
+                      aria-label="구분 필터 해제"
                       className="ml-1 inline-flex size-4 items-center justify-center rounded hover:bg-foreground/10"
                     >
                       <XIcon className="size-3" />

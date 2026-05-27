@@ -154,6 +154,7 @@ describe('enrichMinusData', () => {
       revenueFile: revenueBuf,
       productFile: productBuf,
       calAmountMap: calMap,
+      productMasterMap: new Map(),
     })
 
     expect(rows).toHaveLength(3)
@@ -225,6 +226,7 @@ describe('enrichMinusData', () => {
       revenueFile: emptyRevenue,
       productFile: emptyProduct,
       calAmountMap: new Map(),
+      productMasterMap: new Map(),
     })
     expect(rows).toEqual([])
     expect(diagnostics).toEqual({
@@ -278,6 +280,7 @@ describe('enrichMinusData', () => {
       revenueFile: makeWorkbookBuffer(revenueRows),
       productFile: makeWorkbookBuffer(productRows),
       calAmountMap: new Map(),
+      productMasterMap: new Map(),
     })
 
     expect(rows).toHaveLength(2) // 합계 행 제외 후 2행
@@ -318,9 +321,78 @@ describe('enrichMinusData', () => {
         revenueFile: makeWorkbookBuffer(revenueRows),
         productFile: makeWorkbookBuffer(productRows),
         calAmountMap: new Map(),
+        productMasterMap: new Map(),
       })
       expect(rows, `라벨 "${label}" 합계 행 미제외`).toHaveLength(1)
     }
+  })
+
+  it('productMasterMap 매칭: 단품/복합/미매칭이 isComposite 에 반영된다 (P4 §7)', async () => {
+    const salesRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      makeRow({ C: '2026-05-22', K: 1000, L: 900, R: 100, AE: 'ORD-A' }),
+      makeRow({ C: '2026-05-22', K: 1000, L: 900, R: 100, AE: 'ORD-B' }),
+      makeRow({ C: '2026-05-22', K: 1000, L: 900, R: 100, AE: 'ORD-C' }),
+      makeRow({ C: '2026-05-22', K: 1000, L: 900, R: 100, AE: 'ORD-NONE' }), // join 실패
+    ]
+    const revenueRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      makeRow({ E: 'ORD-A', Y: 'P-SINGLE', AH: '단품상품', BF: 'BR1' }),
+      makeRow({ E: 'ORD-B', Y: 'P-COMP', AH: '복합상품', BF: 'BR1' }),
+      makeRow({ E: 'ORD-C', Y: 'P-MISS', AH: '미매칭상품', BF: 'BR1' }), // master 누락
+    ]
+    const productRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      makeRow({ E: 'ORD-A', AQ: 1 }),
+      makeRow({ E: 'ORD-B', AQ: 1 }),
+      makeRow({ E: 'ORD-C', AQ: 1 }),
+    ]
+
+    const productMasterMap = new Map([
+      [
+        'P-SINGLE',
+        {
+          isComposite: false,
+          channelName: 'CH1',
+          brandName: 'BR1',
+          productName: '단품상품',
+        },
+      ],
+      [
+        'P-COMP',
+        {
+          isComposite: true,
+          channelName: 'CH1',
+          brandName: 'BR1',
+          productName: '복합상품',
+        },
+      ],
+    ])
+
+    const { rows } = await enrichMinusData({
+      salesFile: makeWorkbookBuffer(salesRows),
+      revenueFile: makeWorkbookBuffer(revenueRows),
+      productFile: makeWorkbookBuffer(productRows),
+      calAmountMap: new Map(),
+      productMasterMap,
+    })
+
+    expect(rows).toHaveLength(4)
+    // 행1 — 단품
+    expect(rows[0].productCode).toBe('P-SINGLE')
+    expect(rows[0].isComposite).toBe(false)
+    // 행2 — 복합
+    expect(rows[1].productCode).toBe('P-COMP')
+    expect(rows[1].isComposite).toBe(true)
+    // 행3 — productCode 있으나 master 미등록
+    expect(rows[2].productCode).toBe('P-MISS')
+    expect(rows[2].isComposite).toBeNull()
+    // 행4 — revenue 조인 실패 → productCode null → master 조회 자체 안 함
+    expect(rows[3].productCode).toBeNull()
+    expect(rows[3].isComposite).toBeNull()
   })
 
   it('cal_amount 에 0 등록된 상품: extraSettlement=0 (누락 아님)', async () => {
@@ -346,6 +418,7 @@ describe('enrichMinusData', () => {
       revenueFile: makeWorkbookBuffer(revenueRows),
       productFile: makeWorkbookBuffer(productRows),
       calAmountMap: calMap,
+      productMasterMap: new Map(),
     })
 
     expect(rows[0].extraSettlement).toBe(0) // null 아님 — 등록됨

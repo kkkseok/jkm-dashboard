@@ -26,6 +26,24 @@ import {
 } from './parse'
 import type { EnrichedRow, PipelineDiagnostics } from './types'
 
+/**
+ * productCode → 상품 마스터 메타.
+ * P4 추가. 호출 측(next-builder)이 `getProductMasterMap()` 서버 액션으로 가져와 주입.
+ * Map 에 키가 없으면 매칭 실패 (= EnrichedRow.isComposite === null).
+ *
+ * value 구조는 P3 가 확정한 `getProductMasterMap()` 반환 타입을 따른다.
+ * 본 파이프라인은 isComposite 만 소비한다. 다른 필드는 향후 UI 확장 시 사용.
+ */
+export type ProductMasterMap = Map<
+  string,
+  {
+    isComposite: boolean
+    channelName: string
+    brandName: string
+    productName: string
+  }
+>
+
 export type PipelineInput = {
   salesFile: File | ArrayBuffer
   /** 매출이익리스트(브랜드) — productName/brandName 등 표시 정보 출처 */
@@ -41,6 +59,11 @@ export type PipelineInput = {
    * Map 에 키가 없으면 매칭 실패 (= EnrichedRow.extraSettlement === null).
    */
   calAmountMap: Map<string, number>
+  /**
+   * productCode → 상품 마스터 메타. P4 추가 (`getProductMasterMap()` 결과).
+   * 빈 Map 을 넘기면 모든 행이 isComposite=null (미매칭) 상태가 된다.
+   */
+  productMasterMap: ProductMasterMap
 }
 
 export type PipelineResult = {
@@ -52,7 +75,7 @@ export type PipelineResult = {
  * 두 파싱 결과(또는 ArrayBuffer/File)와 cal_amount Map 으로부터 EnrichedRow 배열 + 진단 정보 생성.
  */
 export async function enrichMinusData(input: PipelineInput): Promise<PipelineResult> {
-  const { salesFile, revenueFile, productFile, calAmountMap } = input
+  const { salesFile, revenueFile, productFile, calAmountMap, productMasterMap } = input
 
   // 1. 세 파일 병렬 파싱
   const [salesAll, revenueAll, productAll] = await Promise.all([
@@ -119,6 +142,12 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     if (productCode != null) matchedCount++
     else unmatchedJoinCount++
 
+    // 상품 마스터 매칭 (P4 추가)
+    // productCode null 이거나 마스터에 등록되지 않은 경우 isComposite = null (UI "미매칭" Badge).
+    const masterRow =
+      productCode != null ? (productMasterMap.get(productCode) ?? null) : null
+    const isComposite = masterRow ? masterRow.isComposite : null
+
     // 룩업 (cal_amount × quantity) — v1.5 (2026-05-26 사용자 확정)
     // extraSettlement = cal_amount 단가 × revenue 판매수량 (AQ)
     // - cal_amount 매칭 실패 OR quantity null → extraSettlement = null
@@ -160,6 +189,7 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
       productName,
       brandName,
       quantity,
+      isComposite,
       extraSettlement,
       ...profit,
     })
