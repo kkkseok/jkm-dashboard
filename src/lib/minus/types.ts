@@ -18,6 +18,11 @@ export type RawRevenueRow = unknown[]
 export type EnrichedRow = {
   // 원본 (sales_status_basic)
   salesType: string | null // A — 매출구분 (예: "[B2B]", "A-CJ온스타일(jkman2)"). 원본 그대로 보존.
+  // 파생 — 매출구분을 채널 라벨로 정규화 (sales-type.ts).
+  //   예: "A-CJ온스타일(jkman2)" → "CJ온스타일", "[B2B]" → "B2B".
+  //   필터/그룹핑/KPI 는 이 값으로 동작. 원본 salesType 은 cell tooltip 에 보존.
+  //   null = salesType 가 null/공백.
+  salesChannel: string | null
   salesDate: string | null // C
   onlineOrderNo: string | null // AE (매핑 key)
   K: number | null // 매출액

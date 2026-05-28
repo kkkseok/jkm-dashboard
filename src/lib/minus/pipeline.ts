@@ -24,6 +24,7 @@ import {
   readStr,
   sliceDataRows,
 } from './parse'
+import { normalizeSalesType } from './sales-type'
 import type { EnrichedRow, PipelineDiagnostics } from './types'
 
 /**
@@ -175,6 +176,7 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
 
     rows.push({
       salesType,
+      salesChannel: normalizeSalesType(salesType),
       salesDate,
       onlineOrderNo,
       K,

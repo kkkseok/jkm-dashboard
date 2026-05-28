@@ -84,14 +84,15 @@ const PAGE_SIZE = 100
 const koInt = new Intl.NumberFormat("ko-KR")
 
 /**
- * localStorage 키 (v3 — 2026-05-27).
+ * localStorage 키 (v4 — 2026-05-28).
  * v1 → v2: quantity 의미 변경 (brand.AQ 단품수량 → product.AQ 세트수량) + analyzedFileNames.product 신규.
  * v2 → v3: EnrichedRow.isComposite 신규 필드 (product_master 조인). v2 캐시는 자동 무력화.
+ * v3 → v4: EnrichedRow.salesChannel 신규 필드 (매출구분 정규화). v3 캐시는 자동 무력화.
  */
-const STORAGE_KEY = "minus:lastAnalysis-v3"
+const STORAGE_KEY = "minus:lastAnalysis-v4"
 
 type PersistedAnalysis = {
-  v: 3
+  v: 4
   rows: RowWithId[]
   diagnostics: PipelineDiagnostics
   analyzedFileNames: { sales: string; revenue: string; product: string }
@@ -104,7 +105,7 @@ function loadPersisted(): PersistedAnalysis | null {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as PersistedAnalysis
-    if (parsed.v !== 3) return null
+    if (parsed.v !== 4) return null
     if (!Array.isArray(parsed.rows) || !parsed.diagnostics) return null
     return parsed
   } catch {
@@ -263,9 +264,10 @@ export function MinusAnalyzeClient() {
   const [searchInput, setSearchInput] = React.useState("")
   const [searchTerm, setSearchTerm] = React.useState("")
   const [onlyMissing, setOnlyMissing] = React.useState(false)
-  /** 총마진율 범위 필터 — 입력은 % 단위 문자열, 빈 문자열 = 해당 방향 무한 */
-  const [rateMinInput, setRateMinInput] = React.useState("-3")
-  const [rateMaxInput, setRateMaxInput] = React.useState("3")
+  /** 총마진율 범위 필터 — 입력은 % 단위 문자열, 빈 문자열 = 해당 방향 무한.
+   *  기본값 없음(빈 입력) — 사용자가 명시적으로 범위를 넣어야 활성화. */
+  const [rateMinInput, setRateMinInput] = React.useState("")
+  const [rateMaxInput, setRateMaxInput] = React.useState("")
   /**
    * "inside"  = min~max 구간 안만 보기 (이상치 검토 — 마진이 낮은 행)
    * "outside" = 구간 밖만 보기 (정상치 — 마진이 안정 범위 밖)
@@ -274,6 +276,8 @@ export function MinusAnalyzeClient() {
   const [rateMode, setRateMode] = React.useState<"inside" | "outside">("inside")
   /** 총마진율 계산 불가 (null) 행만 보기 */
   const [onlyComputeNull, setOnlyComputeNull] = React.useState(false)
+  /** 총마진율 < 0% (마이너스) 행만 보기. KPI "마이너스 건수" 카드 토글로 제어. */
+  const [onlyNegative, setOnlyNegative] = React.useState(false)
   /** 매출구분 다중 선택 필터. 비어 있으면 전체 통과. */
   const [selectedSalesTypes, setSelectedSalesTypes] = React.useState<Set<string>>(
     new Set(),
@@ -316,7 +320,7 @@ export function MinusAnalyzeClient() {
     }
     const t = window.setTimeout(() => {
       const result = savePersisted({
-        v: 3,
+        v: 4,
         rows,
         diagnostics,
         analyzedFileNames,
@@ -405,6 +409,8 @@ export function MinusAnalyzeClient() {
     setSearchInput("")
     setSearchTerm("")
     setOnlyMissing(false)
+    setOnlyComputeNull(false)
+    setOnlyNegative(false)
     setSelectedSalesTypes(new Set())
     setProductTypeFilter("all")
     setSlotFile(reuploadPending.slot, reuploadPending.file)
@@ -488,8 +494,9 @@ export function MinusAnalyzeClient() {
     setSearchTerm("")
     setOnlyMissing(false)
     setOnlyComputeNull(false)
-    setRateMinInput("-3")
-    setRateMaxInput("3")
+    setOnlyNegative(false)
+    setRateMinInput("")
+    setRateMaxInput("")
     setRateMode("inside")
     setSelectedSalesTypes(new Set())
     setProductTypeFilter("all")
@@ -577,8 +584,11 @@ export function MinusAnalyzeClient() {
     return rows.filter((r) => {
       if (onlyMissing && r.extraSettlement != null) return false
       if (onlyComputeNull && r.totalMarginRate != null) return false
+      if (onlyNegative && !(r.totalMarginRate != null && r.totalMarginRate < 0))
+        return false
       if (selectedSalesTypes.size > 0) {
-        if (r.salesType == null || !selectedSalesTypes.has(r.salesType))
+        // 정규화된 채널 라벨(salesChannel) 기준 매칭. 매핑 실패(null) 행은 필터 적용 시 제외.
+        if (r.salesChannel == null || !selectedSalesTypes.has(r.salesChannel))
           return false
       }
       // 구분(단품/복합/미매칭) 필터 — 02_uiux_products §5-2
@@ -606,7 +616,9 @@ export function MinusAnalyzeClient() {
         r.productCode?.toLowerCase() ?? "",
         r.onlineOrderNo?.toLowerCase() ?? "",
         r.brandName?.toLowerCase() ?? "",
+        // 원본 + 정규화 라벨 양쪽에서 검색 매칭 — "CJ온스타일" / "jkman2" 둘 다 가능
         r.salesType?.toLowerCase() ?? "",
+        r.salesChannel?.toLowerCase() ?? "",
       ].join("")
       return hay.includes(term)
     })
@@ -615,6 +627,7 @@ export function MinusAnalyzeClient() {
     searchTerm,
     onlyMissing,
     onlyComputeNull,
+    onlyNegative,
     rangeActive,
     rateMin,
     rateMax,
@@ -623,13 +636,14 @@ export function MinusAnalyzeClient() {
     productTypeFilter,
   ])
 
-  /** 현재 분석 결과에서 매출구분 unique 값과 행 수 — 필터 popover 에 노출. */
+  /** 현재 분석 결과에서 매출구분 unique 값과 행 수 — 필터 popover 에 노출.
+   *  정규화된 채널 라벨(salesChannel) 단위로 집계 (예: "A-CJ온스타일(jkman2)" / "B-CJ온스타일(jkman3)" → "CJ온스타일"). */
   const salesTypeOptions = React.useMemo(() => {
     if (!rows) return [] as Array<{ value: string; count: number }>
     const counts = new Map<string, number>()
     for (const r of rows) {
-      if (r.salesType == null) continue
-      counts.set(r.salesType, (counts.get(r.salesType) ?? 0) + 1)
+      if (r.salesChannel == null) continue
+      counts.set(r.salesChannel, (counts.get(r.salesChannel) ?? 0) + 1)
     }
     return Array.from(counts.entries())
       .map(([value, count]) => ({ value, count }))
@@ -687,17 +701,25 @@ export function MinusAnalyzeClient() {
         ),
       },
       {
-        accessorKey: "salesType",
+        accessorKey: "salesChannel",
+        id: "salesType",
         header: "매출구분",
         enableSorting: true,
+        sortingFn: (a, b) => {
+          const av = a.original.salesChannel ?? ""
+          const bv = b.original.salesChannel ?? ""
+          return av.localeCompare(bv, "ko")
+        },
         cell: ({ row }) => {
-          const v = row.original.salesType
+          const label = row.original.salesChannel
+          const raw = row.original.salesType
+          // 정규화 실패 시 원본 그대로. tooltip 은 항상 원본을 보여준다.
           return (
             <span
               className="block max-w-[14rem] truncate"
-              title={v ?? undefined}
+              title={raw ?? undefined}
             >
-              {v ?? "-"}
+              {label ?? raw ?? "-"}
             </span>
           )
         },
@@ -910,6 +932,7 @@ export function MinusAnalyzeClient() {
     searchTerm,
     onlyMissing,
     onlyComputeNull,
+    onlyNegative,
     rangeActive,
     rateMin,
     rateMax,
@@ -932,6 +955,10 @@ export function MinusAnalyzeClient() {
       for (const r of filteredRows) {
         const cells = CSV_HEADERS.map(([key]) => {
           const v = r[key]
+          // 매출구분: 화면과 동일하게 정규화 라벨(salesChannel) 우선, 실패 시 원본 salesType.
+          if (key === "salesType") {
+            return csvEscape(r.salesChannel ?? r.salesType ?? "")
+          }
           // 구분(isComposite) 컬럼은 한글 변환. null = "미매칭".
           if (key === "isComposite") {
             return csvEscape(v === true ? "복합" : v === false ? "단품" : "미매칭")
@@ -1128,21 +1155,31 @@ export function MinusAnalyzeClient() {
         <>
           <Separator />
 
-          {/* KPI — v1.4: 6장 (마이너스 건수 활성, 계산 불가 카드 신규) */}
+          {/* KPI — v1.5: 6장. 순서 = 총 행 수 / 마이너스 건수 / 계산 불가 / 추가후정산금 누락 / 총 매출액 / 총마진액 합계.
+              마이너스 / 계산 불가 / 추가후정산금 누락 세 카드는 클릭 시 해당 행만 보기 필터로 토글된다. */}
           <section className="grid grid-cols-2 gap-3 md:grid-cols-6">
             <KpiCard
               label="총 행 수"
               value={koInt.format(diagnostics.totalRows)}
             />
-            <KpiCard
+            <ToggleKpiCard
               label="마이너스 건수"
-              value={koInt.format(negativeCount)}
+              count={negativeCount}
               sub={
                 diagnostics.totalRows > 0
                   ? `총마진율 < 0% · ${((negativeCount / diagnostics.totalRows) * 100).toFixed(1)}%`
                   : "총마진율 < 0%"
               }
+              pressed={onlyNegative}
               valueClass={negativeCount > 0 ? "text-red-600" : ""}
+              onToggle={() => {
+                if (negativeCount === 0) {
+                  toast.info("마이너스 행이 없습니다")
+                  return
+                }
+                setOnlyNegative((v) => !v)
+              }}
+              ariaLabel="마이너스 행만 보기"
             />
             <ToggleKpiCard
               label="계산 불가"
@@ -1158,15 +1195,6 @@ export function MinusAnalyzeClient() {
               }}
               ariaLabel="계산 불가 행만 보기"
             />
-            <KpiCard
-              label="총 매출액"
-              value={koInt.format(Math.round(totalSales))}
-            />
-            <KpiCard
-              label="총마진액 합계"
-              value={koInt.format(Math.round(totalMarginSum))}
-              valueClass={totalMarginSum < 0 ? "text-red-600" : ""}
-            />
             <ToggleKpiCard
               label="추가후정산금 누락"
               count={diagnostics.missingExtraCount}
@@ -1180,6 +1208,15 @@ export function MinusAnalyzeClient() {
                 setOnlyMissing((v) => !v)
               }}
               ariaLabel="추가후정산금 누락 행만 보기"
+            />
+            <KpiCard
+              label="총 매출액"
+              value={koInt.format(Math.round(totalSales))}
+            />
+            <KpiCard
+              label="총마진액 합계"
+              value={koInt.format(Math.round(totalMarginSum))}
+              valueClass={totalMarginSum < 0 ? "text-red-600" : ""}
             />
           </section>
 
@@ -1321,6 +1358,7 @@ export function MinusAnalyzeClient() {
             {(searchTerm.length > 0 ||
               onlyMissing ||
               onlyComputeNull ||
+              onlyNegative ||
               rangeActive ||
               selectedSalesTypes.size > 0 ||
               productTypeFilter !== "all") && (
@@ -1358,6 +1396,19 @@ export function MinusAnalyzeClient() {
                         setRateMaxInput("")
                       }}
                       aria-label="범위 필터 해제"
+                      className="ml-1 inline-flex size-4 items-center justify-center rounded hover:bg-foreground/10"
+                    >
+                      <XIcon className="size-3" />
+                    </button>
+                  </Badge>
+                )}
+                {onlyNegative && (
+                  <Badge variant="secondary" className="gap-1 pr-1">
+                    마이너스만
+                    <button
+                      type="button"
+                      onClick={() => setOnlyNegative(false)}
+                      aria-label="마이너스만 필터 해제"
                       className="ml-1 inline-flex size-4 items-center justify-center rounded hover:bg-foreground/10"
                     >
                       <XIcon className="size-3" />
@@ -1879,6 +1930,7 @@ function ToggleKpiCard({
   pressed,
   onToggle,
   ariaLabel,
+  valueClass,
 }: {
   label: string
   count: number
@@ -1886,6 +1938,8 @@ function ToggleKpiCard({
   pressed: boolean
   onToggle: () => void
   ariaLabel: string
+  /** 값 텍스트 추가 클래스 — 마이너스 건수 같이 강조 색을 입힐 때 사용. */
+  valueClass?: string
 }) {
   const isZero = count === 0
   return (
@@ -1918,6 +1972,7 @@ function ToggleKpiCard({
           className={cn(
             "text-2xl font-semibold tabular-nums",
             isZero && "text-muted-foreground",
+            valueClass,
           )}
         >
           {koInt.format(count)}건
