@@ -64,6 +64,36 @@ export const listProductsParamsSchema = z.object({
 
 export type ListProductsParams = z.input<typeof listProductsParamsSchema>
 
+/**
+ * Wide view 정렬 가능 키 — 한 행 = 한 사방넷이므로 그룹 단위 컬럼만.
+ * (channelName / productCode 는 Wide 에서 컬럼이 다수라 정렬 의미 없음)
+ */
+export const productWideSortKeys = [
+  'sabangnetCode',
+  'brandName',
+  'productName',
+  'isComposite',
+  'createdAt',
+] as const
+export type ProductWideSortKey = (typeof productWideSortKeys)[number]
+
+/**
+ * Wide view 조회 파라미터.
+ * - `channel` 파라미터는 의도적으로 받지 않음 — Wide 에서 채널 필터는
+ *   서버 행 필터가 아니라 클라이언트 컬럼 visibility 로 동작한다.
+ * - 페이지네이션 단위는 "사방넷코드"(distinct) 1개 = 1 행.
+ */
+export const listProductsWideParamsSchema = z.object({
+  search: z.string().optional(),
+  isComposite: z.boolean().optional(),
+  sort: z.enum(productWideSortKeys).default('sabangnetCode'),
+  dir: z.enum(['asc', 'desc']).default('asc'),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(1000).default(100),
+})
+
+export type ListProductsWideParams = z.input<typeof listProductsWideParamsSchema>
+
 /** import 옵션 */
 export const importProductsOptsSchema = z.object({
   /** ON: product_code 중복 시 기존 행 덮어쓰기. OFF(기본): 건너뜀. */

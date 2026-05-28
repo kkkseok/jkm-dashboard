@@ -13,13 +13,6 @@ import {
   UploadIcon,
   XIcon,
 } from "lucide-react"
-import {
-  type ColumnDef,
-  type SortingState,
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-} from "@tanstack/react-table"
 import * as XLSX from "xlsx"
 import { toast } from "sonner"
 
@@ -72,27 +65,28 @@ import { ProductImportDialog } from "@/components/product-import-dialog"
 import {
   deleteProduct,
   getProductsBySabangnet,
-  type ProductRow,
+  type ProductWideRow,
 } from "@/lib/products/actions"
-import type { ProductSortKey } from "@/lib/products/schema"
-import { cn } from "@/lib/utils"
+import type { ProductWideSortKey } from "@/lib/products/schema"
 import { ProductsViewToggle } from "./products-view-toggle"
+import { buildWideTemplateRows } from "./products-list-client"
 
 type TypeFilter = "all" | "single" | "composite"
 
 type Props = {
-  initialRows: ProductRow[]
+  initialRows: ProductWideRow[]
   total: number
   page: number
   pageSize: number
   search: string
-  channels: string[]
+  /** 컬럼 visibility (Wide) — 표시할 채널명만. 빈 배열 = 전체 표시 */
+  visibleChannels: string[]
   typeFilter: TypeFilter
-  sort: ProductSortKey
+  sort: ProductWideSortKey
   dir: "asc" | "desc"
-  /** product_channels 마스터 (양식/폼 옵션) */
+  /** product_channels 마스터 — 표 컬럼 헤더 + 양식 옵션 */
   channelOptions: string[]
-  /** 필터용 채널 옵션 (마스터 + 실제 product_master DISTINCT 의 union) */
+  /** 필터 UI 에서 보여줄 채널 옵션 (마스터 + product_master DISTINCT union) */
   filterChannelOptions: string[]
 }
 
@@ -109,13 +103,13 @@ function formatDateTime(d: Date | string): string {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}`
 }
 
-export function ProductsListClient({
+export function ProductsWideClient({
   initialRows,
   total,
   page,
   pageSize,
   search,
-  channels,
+  visibleChannels,
   typeFilter,
   sort,
   dir,
@@ -125,7 +119,6 @@ export function ProductsListClient({
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  // 검색 input 로컬 상태 (debounce 적용)
   const [searchInput, setSearchInput] = React.useState(search)
   const [isPending, startTransition] = React.useTransition()
 
@@ -174,11 +167,11 @@ export function ProductsListClient({
     })
   }
 
-  function setChannels(nextChannels: string[]) {
+  function setVisibleChannels(nextChannels: string[]) {
     const url = buildUrl((next) => {
       if (nextChannels.length === 0) next.delete("channel")
       else next.set("channel", nextChannels.join(","))
-      next.delete("page")
+      // 컬럼 visibility 만 바꾸므로 페이지는 유지
     })
     startTransition(() => {
       router.replace(url)
@@ -196,7 +189,7 @@ export function ProductsListClient({
     })
   }
 
-  function setSortUrl(nextSort: ProductSortKey) {
+  function setSortUrl(nextSort: ProductWideSortKey) {
     const url = buildUrl((next) => {
       const sameCol = nextSort === sort
       const nextDir: "asc" | "desc" = sameCol
@@ -232,25 +225,28 @@ export function ProductsListClient({
     })
   }
 
-  // Add / Edit / Delete / Import Dialog 상태
+  // Dialog 상태
   const [addOpen, setAddOpen] = React.useState(false)
   const [editGroup, setEditGroup] = React.useState<ProductFormGroup | null>(null)
   const [editLoading, setEditLoading] = React.useState(false)
-  const [deleteTarget, setDeleteTarget] = React.useState<ProductRow | null>(
-    null,
-  )
+  const [deleteTarget, setDeleteTarget] = React.useState<{
+    sabangnetCode: string
+    productName: string
+    rowCount: number
+  } | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
   const [importOpen, setImportOpen] = React.useState(false)
 
-  async function openEditForRow(r: ProductRow) {
+  async function openEditForSabangnet(sabangnetCode: string) {
     setEditLoading(true)
     try {
-      const rows = await getProductsBySabangnet(r.sabangnetCode)
+      const rows = await getProductsBySabangnet(sabangnetCode)
       if (rows.length === 0) {
-        toast.error("이 사방넷의 데이터가 사라졌습니다 (다른 사용자가 삭제?). 새로고침 후 다시 시도하세요.")
+        toast.error(
+          "이 사방넷의 데이터가 사라졌습니다 (다른 사용자가 삭제?). 새로고침 후 다시 시도하세요.",
+        )
         return
       }
-      // 그룹의 메타는 첫 행 기준 (saveProductGroup 가 전체 행에 동일 메타 적용)
       const head = rows[0]
       setEditGroup({
         sabangnetCode: head.sabangnetCode,
@@ -271,19 +267,32 @@ export function ProductsListClient({
     }
   }
 
+  // Wide 의 삭제는 그룹 전체 (사방넷의 모든 채널 행) 삭제로 정의.
+  // 채널별 단건 삭제가 필요하면 상세(detail) view 또는 그룹 편집 Dialog 에서.
   async function handleDelete() {
     if (!deleteTarget) return
     setIsDeleting(true)
     try {
-      await deleteProduct(deleteTarget.id)
-      toast.success(`삭제됨: ${deleteTarget.productCode}`)
+      const rows = await getProductsBySabangnet(deleteTarget.sabangnetCode)
+      let deleted = 0
+      for (const r of rows) {
+        try {
+          await deleteProduct(r.id)
+          deleted += 1
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          toast.error(`삭제 실패 (${r.channelName}): ${message}`)
+        }
+      }
+      if (deleted > 0) {
+        toast.success(
+          `삭제됨: ${deleteTarget.sabangnetCode} (${deleted}건 채널 행)`,
+        )
+      }
       setDeleteTarget(null)
       startTransition(() => {
         router.refresh()
       })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "알 수 없는 오류"
-      toast.error(`삭제 실패: ${message}`)
     } finally {
       setIsDeleting(false)
     }
@@ -296,7 +305,6 @@ export function ProductsListClient({
   }
 
   function downloadTemplate() {
-    // v1.2 Wide format: 4 고정 + 등록 채널 헤더들
     const data = buildWideTemplateRows(channelOptions)
     const ws = XLSX.utils.aoa_to_sheet(data)
     const wb = XLSX.utils.book_new()
@@ -304,165 +312,38 @@ export function ProductsListClient({
     XLSX.writeFile(wb, `products_template_${todayYMD()}.xlsx`)
   }
 
-  // TanStack 컬럼 정의 — v1.1: 사방넷·브랜드·채널·상품코드·상품명·구분·등록일·actions
-  const columns = React.useMemo<ColumnDef<ProductRow>[]>(
-    () => [
-      {
-        accessorKey: "sabangnetCode",
-        header: "사방넷코드",
-        enableSorting: false,
-        cell: ({ row }) => (
-          <span className="block min-w-[8rem] font-mono text-xs">
-            {row.original.sabangnetCode}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "brandName",
-        header: "브랜드",
-        enableSorting: false,
-        cell: ({ row }) => (
-          <span
-            className="block max-w-[10rem] truncate"
-            title={row.original.brandName}
-          >
-            {row.original.brandName}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "channelName",
-        header: "채널명",
-        enableSorting: false,
-        cell: ({ row }) => (
-          <span
-            className="block max-w-[14rem] truncate"
-            title={row.original.channelName}
-          >
-            {row.original.channelName}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "productCode",
-        header: "상품코드",
-        enableSorting: false,
-        cell: ({ row }) => (
-          <span className="block min-w-[8rem] font-mono text-xs">
-            {row.original.productCode}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "productName",
-        header: "상품명",
-        enableSorting: false,
-        cell: ({ row }) => (
-          <span
-            className="block max-w-[16rem] truncate"
-            title={row.original.productName}
-          >
-            {row.original.productName}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "isComposite",
-        header: () => <span className="block text-center">구분</span>,
-        enableSorting: false,
-        cell: ({ row }) => (
-          <span className="flex justify-center">
-            {row.original.isComposite ? (
-              <Badge variant="default">복합</Badge>
-            ) : (
-              <Badge variant="secondary">단품</Badge>
-            )}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "createdAt",
-        header: () => <span className="block text-right">등록일</span>,
-        enableSorting: false,
-        cell: ({ row }) => (
-          <span className="block text-right tabular-nums text-muted-foreground">
-            {formatDateTime(row.original.createdAt)}
-          </span>
-        ),
-      },
-      {
-        id: "actions",
-        header: () => <span className="sr-only">액션</span>,
-        enableSorting: false,
-        cell: ({ row }) => {
-          const r = row.original
-          return (
-            <div className="flex items-center justify-end gap-1">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`${r.productCode} 수정`}
-                onClick={() => void openEditForRow(r)}
-              >
-                <PencilIcon />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`${r.productCode} 삭제`}
-                onClick={() => setDeleteTarget(r)}
-              >
-                <Trash2Icon />
-              </Button>
-            </div>
-          )
-        },
-      },
-    ],
-    [],
-  )
+  // 컬럼 visibility 적용된 채널 리스트.
+  // visibleChannels 비어있으면 마스터 전체 노출.
+  const shownChannels =
+    visibleChannels.length === 0
+      ? channelOptions
+      : channelOptions.filter((ch) => visibleChannels.includes(ch))
 
-  // 정렬 헤더 라벨 매핑 — 표 외부에서 정렬 가능 컬럼만 표시
-  const sortableHeaders: { key: ProductSortKey; label: string }[] = [
+  const sortableHeaders: { key: ProductWideSortKey; label: string }[] = [
     { key: "sabangnetCode", label: "사방넷코드" },
     { key: "brandName", label: "브랜드" },
-    { key: "channelName", label: "채널명" },
-    { key: "productCode", label: "상품코드" },
+    { key: "productName", label: "상품명" },
     { key: "isComposite", label: "구분" },
     { key: "createdAt", label: "등록일" },
   ]
-
-  const [sorting] = React.useState<SortingState>([])
-
-  const table = useReactTable({
-    data: initialRows,
-    columns,
-    state: { sorting },
-    getCoreRowModel: getCoreRowModel(),
-    manualPagination: true,
-    manualSorting: true,
-    pageCount: Math.max(1, Math.ceil(total / pageSize)),
-  })
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1
   const end = Math.min(page * pageSize, total)
 
-  // 필터 active 여부 (페이지/정렬은 제외)
   const hasFilters =
     search.length > 0 ||
-    channels.length > 0 ||
+    visibleChannels.length > 0 ||
     typeFilter !== "all"
 
-  // 검색 결과 0건 분기 (initialRows 비었지만 필터/검색 적용 중일 때)
   const isEmptyFiltered = initialRows.length === 0 && hasFilters
   const isEmptyTotal = initialRows.length === 0 && !hasFilters && page === 1
 
   return (
     <div className="space-y-6">
-      {/* 액션 바 (헤더는 page-level 탭 wrapper 에서 표시) */}
+      {/* 액션 바 */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <ProductsViewToggle current="detail" />
+        <ProductsViewToggle current="wide" />
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={downloadTemplate}>
             <DownloadIcon />
@@ -483,13 +364,13 @@ export function ProductsListClient({
       <Alert>
         <AlertTitle>
           {total > 0
-            ? `등록된 상품 ${koInt.format(total)}건 · 채널 ${channelOptions.length}개`
+            ? `등록된 사방넷 ${koInt.format(total)}건 · 채널 ${channelOptions.length}개`
             : "아직 등록된 상품이 없습니다"}
         </AlertTitle>
         <AlertDescription>
-          한 사방넷코드가 여러 채널에 등록될 수 있습니다 (Wide 양식). 행 클릭
-          시 그 사방넷의 모든 채널 행을 한 번에 편집합니다. 상품코드는 시스템
-          전체에서 고유(UNIQUE)입니다.
+          엑셀 입력 양식과 동일한 가로 펼침 view 입니다. 한 행 = 한 사방넷코드,
+          각 채널 컬럼에 그 채널의 상품코드가 표시됩니다. 빈 셀(—)은 해당 채널에
+          미등록. 행 또는 셀 클릭 시 그 사방넷의 모든 채널을 한 번에 편집합니다.
         </AlertDescription>
       </Alert>
 
@@ -523,10 +404,10 @@ export function ProductsListClient({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <ChannelFilter
+            <ChannelVisibilityFilter
               options={filterChannelOptions}
-              selected={new Set(channels)}
-              onChange={(set) => setChannels(Array.from(set))}
+              selected={new Set(visibleChannels)}
+              onChange={(set) => setVisibleChannels(Array.from(set))}
             />
             <Select
               value={typeFilter}
@@ -561,15 +442,15 @@ export function ProductsListClient({
                 </button>
               </Badge>
             )}
-            {channels.map((ch) => (
+            {visibleChannels.map((ch) => (
               <Badge key={ch} variant="secondary" className="gap-1 pr-1">
-                채널: {ch}
+                표시 채널: {ch}
                 <button
                   type="button"
                   onClick={() =>
-                    setChannels(channels.filter((c) => c !== ch))
+                    setVisibleChannels(visibleChannels.filter((c) => c !== ch))
                   }
-                  aria-label={`채널 필터 ${ch} 해제`}
+                  aria-label={`표시 채널 ${ch} 해제`}
                   className="ml-1 inline-flex size-4 items-center justify-center rounded hover:bg-foreground/10"
                 >
                   <XIcon className="size-3" />
@@ -600,7 +481,7 @@ export function ProductsListClient({
           </div>
         )}
 
-        {/* 정렬 헤더 (간단 toolbar) */}
+        {/* 정렬 헤더 */}
         <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
           <span>정렬:</span>
           {sortableHeaders.map((h) => {
@@ -638,7 +519,11 @@ export function ProductsListClient({
                 <DownloadIcon />
                 양식 다운로드
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setImportOpen(true)}
+              >
                 <UploadIcon />
                 엑셀 import
               </Button>
@@ -657,12 +542,12 @@ export function ProductsListClient({
                   검색 초기화
                 </Button>
               )}
-              {(channels.length > 0 || typeFilter !== "all") && (
+              {(visibleChannels.length > 0 || typeFilter !== "all") && (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    setChannels([])
+                    setVisibleChannels([])
                     setTypeFilterUrl("all")
                   }}
                 >
@@ -675,35 +560,111 @@ export function ProductsListClient({
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                {table.getHeaderGroups().map((hg) => (
-                  <TableRow key={hg.id}>
-                    {hg.headers.map((h) => (
-                      <TableHead key={h.id} className="whitespace-nowrap">
-                        {flexRender(
-                          h.column.columnDef.header,
-                          h.getContext(),
-                        )}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                ))}
+                <TableRow>
+                  <TableHead className="sticky left-0 z-10 whitespace-nowrap bg-background">
+                    사방넷코드
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap">브랜드</TableHead>
+                  <TableHead className="whitespace-nowrap">상품명</TableHead>
+                  <TableHead className="whitespace-nowrap text-center">
+                    구분
+                  </TableHead>
+                  {shownChannels.map((ch) => (
+                    <TableHead
+                      key={ch}
+                      className="whitespace-nowrap text-xs"
+                      title={ch}
+                    >
+                      {ch}
+                    </TableHead>
+                  ))}
+                  <TableHead className="whitespace-nowrap text-right">
+                    등록일
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    <span className="sr-only">액션</span>
+                  </TableHead>
+                </TableRow>
               </TableHeader>
               <TableBody>
-                {table.getRowModel().rows.map((row) => (
+                {initialRows.map((r) => (
                   <TableRow
-                    key={row.id}
-                    className={cn(
-                      "transition-colors hover:bg-muted/40",
-                    )}
+                    key={r.sabangnetCode}
+                    className="cursor-pointer transition-colors hover:bg-muted/40"
+                    onClick={() => void openEditForSabangnet(r.sabangnetCode)}
                   >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext(),
-                        )}
-                      </TableCell>
-                    ))}
+                    <TableCell className="sticky left-0 z-10 bg-background font-mono text-xs">
+                      {r.sabangnetCode}
+                    </TableCell>
+                    <TableCell
+                      className="max-w-[10rem] truncate"
+                      title={r.brandName}
+                    >
+                      {r.brandName}
+                    </TableCell>
+                    <TableCell
+                      className="max-w-[16rem] truncate"
+                      title={r.productName}
+                    >
+                      {r.productName}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {r.isComposite ? (
+                        <Badge variant="default">복합</Badge>
+                      ) : (
+                        <Badge variant="secondary">단품</Badge>
+                      )}
+                    </TableCell>
+                    {shownChannels.map((ch) => {
+                      const cell = r.channels[ch]
+                      return (
+                        <TableCell
+                          key={ch}
+                          className="font-mono text-xs"
+                          title={cell ? cell.productCode : `${ch} 미등록`}
+                        >
+                          {cell ? (
+                            cell.productCode
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      )
+                    })}
+                    <TableCell className="whitespace-nowrap text-right tabular-nums text-xs text-muted-foreground">
+                      {formatDateTime(r.createdAt)}
+                    </TableCell>
+                    <TableCell
+                      className="whitespace-nowrap"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`${r.sabangnetCode} 수정`}
+                          onClick={() =>
+                            void openEditForSabangnet(r.sabangnetCode)
+                          }
+                        >
+                          <PencilIcon />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`${r.sabangnetCode} 삭제`}
+                          onClick={() =>
+                            setDeleteTarget({
+                              sabangnetCode: r.sabangnetCode,
+                              productName: r.productName,
+                              rowCount: Object.keys(r.channels).length,
+                            })
+                          }
+                        >
+                          <Trash2Icon />
+                        </Button>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -716,7 +677,7 @@ export function ProductsListClient({
       {total > 0 && initialRows.length > 0 && (
         <div className="flex flex-col items-center justify-between gap-2 sm:flex-row">
           <div className="text-sm text-muted-foreground">
-            {koInt.format(total)}건 중 {start}–{end}
+            사방넷 {koInt.format(total)}건 중 {start}–{end}
             {isPending && <span className="ml-2 text-xs">불러오는 중…</span>}
           </div>
           <PageNav
@@ -737,7 +698,7 @@ export function ProductsListClient({
         onSaved={handleSaved}
       />
 
-      {/* 수정 Dialog (사방넷 그룹 전체 로드) */}
+      {/* 수정 Dialog */}
       <ProductFormDialog
         open={editGroup != null}
         onOpenChange={(o) => {
@@ -760,14 +721,13 @@ export function ProductsListClient({
         onSaved={handleSaved}
       />
 
-      {/* 그룹 로드 중 토스트 */}
       {editLoading && (
         <span aria-live="polite" className="sr-only">
           상품 그룹 로드 중…
         </span>
       )}
 
-      {/* 삭제 확인 Dialog */}
+      {/* 삭제 확인 Dialog (그룹 전체 삭제) */}
       <Dialog
         open={!!deleteTarget}
         onOpenChange={(open) => {
@@ -776,16 +736,17 @@ export function ProductsListClient({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>삭제 확인</DialogTitle>
+            <DialogTitle>그룹 삭제 확인</DialogTitle>
             <DialogDescription>
               {deleteTarget && (
                 <>
-                  사방넷 {deleteTarget.sabangnetCode} · 채널 &quot;
-                  {deleteTarget.channelName}&quot; · 상품코드 &quot;
-                  {deleteTarget.productCode}&quot; 한 행만 삭제됩니다.
+                  사방넷 <strong>{deleteTarget.sabangnetCode}</strong> (
+                  {deleteTarget.productName}) 의 <strong>모든 채널 행 {deleteTarget.rowCount}건</strong>
+                  이 삭제됩니다.
                   <br />
-                  같은 사방넷의 다른 채널 행은 유지됩니다. 이 상품은 해당 채널의
-                  마이너스 분석 단품/복합 매칭에서 제외됩니다.
+                  이 상품은 모든 채널의 마이너스 분석 단품/복합 매칭에서
+                  제외됩니다. 한 채널만 지우려면 상세(detail) view 또는 편집
+                  Dialog 에서 해당 채널을 삭제하세요.
                 </>
               )}
             </DialogDescription>
@@ -804,9 +765,9 @@ export function ProductsListClient({
               variant="destructive"
               onClick={handleDelete}
               disabled={isDeleting}
-              aria-label="삭제 확정"
+              aria-label="그룹 삭제 확정"
             >
-              {isDeleting ? "삭제 중…" : "삭제"}
+              {isDeleting ? "삭제 중…" : "그룹 삭제"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -816,10 +777,10 @@ export function ProductsListClient({
 }
 
 /* ============================================================
- * ChannelFilter — Popover + Command (다중 선택)
+ * ChannelVisibilityFilter — Wide view 의 채널 컬럼 표시/숨김
  * ============================================================ */
 
-function ChannelFilter({
+function ChannelVisibilityFilter({
   options,
   selected,
   onChange,
@@ -850,9 +811,9 @@ function ChannelFilter({
           <Button
             variant="outline"
             size="sm"
-            aria-label={`채널 필터 — 현재 ${selectedCount === 0 ? "전체" : `${selectedCount}개 선택`}`}
+            aria-label={`표시 채널 — 현재 ${selectedCount === 0 ? "전체" : `${selectedCount}개`}`}
           >
-            채널
+            표시 채널
             {selectedCount > 0 && (
               <Badge variant="secondary" className="ml-2">
                 {selectedCount}
@@ -870,15 +831,15 @@ function ChannelFilter({
           <div className="flex items-center justify-between border-b px-2 py-1 text-xs">
             <span className="text-muted-foreground">
               {selectedCount === 0
-                ? `전체 (${total})`
-                : `${selectedCount}/${total} 선택`}
+                ? `전체 표시 (${total})`
+                : `${selectedCount}/${total} 표시`}
             </span>
             <button
               type="button"
               onClick={clearAll}
               className="rounded px-1.5 py-0.5 hover:bg-accent"
             >
-              해제
+              전체로
             </button>
           </div>
           <CommandList>
@@ -895,7 +856,7 @@ function ChannelFilter({
                   >
                     <Checkbox
                       checked={isChecked}
-                      aria-label={`${opt} 선택`}
+                      aria-label={`${opt} 표시 전환`}
                       tabIndex={-1}
                       className="pointer-events-none"
                     />
@@ -914,7 +875,7 @@ function ChannelFilter({
 }
 
 /* ============================================================
- * Pagination
+ * Pagination (detail view 와 동일 로직 — 사방넷 단위로 계산만 다름)
  * ============================================================ */
 
 function PageNav({
@@ -1000,23 +961,4 @@ function todayYMD(): string {
   const m = String(d.getMonth() + 1).padStart(2, "0")
   const dd = String(d.getDate()).padStart(2, "0")
   return `${y}-${m}-${dd}`
-}
-
-/**
- * Wide format 양식: 4 고정 헤더 + 채널 헤더 + 예시 1~2행.
- * 채널 옵션이 비어있어도 4 고정 + 빈 채널열 1개를 보장.
- */
-export function buildWideTemplateRows(channelOptions: string[]): unknown[][] {
-  const channels = channelOptions.length > 0 ? channelOptions : ["GSshop"]
-  const header = ["사방넷코드", "브랜드명", "상품명", "구분", ...channels]
-  // 예시 1행: 첫 두 채널만 채워 wide 사용 패턴 시연
-  const example1: unknown[] = ["SBG-1001", "글리치", "워시팩", "단품"]
-  for (let i = 0; i < channels.length; i++) {
-    example1.push(i === 0 ? "ABC-001" : i === 1 ? "ABC-001-CP" : "")
-  }
-  const example2: unknown[] = ["SBG-1002", "글리치", "세트A", "복합"]
-  for (let i = 0; i < channels.length; i++) {
-    example2.push(i === 1 ? "ABC-002-CP" : i === 2 ? "ABC-002-OH" : "")
-  }
-  return [header, example1, example2]
 }

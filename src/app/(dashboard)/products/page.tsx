@@ -3,16 +3,25 @@ import {
   listChannelNames,
   listChannelsWithUsage,
   listProducts,
+  listProductsWide,
 } from "@/lib/products/actions"
-import type { ProductSortKey } from "@/lib/products/schema"
-import { productSortKeys } from "@/lib/products/schema"
+import type {
+  ProductSortKey,
+  ProductWideSortKey,
+} from "@/lib/products/schema"
+import {
+  productSortKeys,
+  productWideSortKeys,
+} from "@/lib/products/schema"
 import { ProductsListClient } from "./products-list-client"
+import { ProductsWideClient } from "./products-wide-client"
 import { ProductsPageTabs } from "./products-tabs"
 
 const PAGE_SIZE = 100
 
 type SearchParams = {
   tab?: string
+  view?: string
   q?: string
   channel?: string
   type?: string
@@ -43,6 +52,8 @@ export default async function ProductsPage({
 }) {
   const params = await searchParams
   const tab: "products" | "channels" = params.tab === "channels" ? "channels" : "products"
+  // Wide 가 기본값. ?view=detail 일 때만 long(상세) 뷰.
+  const view: "detail" | "wide" = params.view === "detail" ? "detail" : "wide"
 
   const q = (params.q ?? "").trim()
 
@@ -66,40 +77,65 @@ export default async function ProductsPage({
   const page =
     Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1
 
-  const sort: ProductSortKey = (productSortKeys as readonly string[]).includes(
-    params.sort ?? "",
-  )
+  // 정렬 키 셋이 view 마다 다르므로 view 별로 파싱
+  const sortDetail: ProductSortKey = (
+    productSortKeys as readonly string[]
+  ).includes(params.sort ?? "")
     ? (params.sort as ProductSortKey)
     : "sabangnetCode"
-  // v1.2: 기본 sabangnetCode ASC 가 사방넷별 그룹핑이 자연스러움
+  const sortWide: ProductWideSortKey = (
+    productWideSortKeys as readonly string[]
+  ).includes(params.sort ?? "")
+    ? (params.sort as ProductWideSortKey)
+    : "sabangnetCode"
+
+  // 기본 정렬 방향: sabangnetCode 는 ASC 가 자연스러움 (그룹핑)
+  const sortKeyInUse = view === "wide" ? sortWide : sortDetail
   const dir: "asc" | "desc" =
     params.dir === "asc"
       ? "asc"
       : params.dir === "desc"
         ? "desc"
-        : sort === "sabangnetCode"
+        : sortKeyInUse === "sabangnetCode"
           ? "asc"
           : "desc"
 
-  // 항상 채널 마스터(등록된 옵션 전체)와 product_master DISTINCT(필터용)를 모두 가져온다.
-  // (filter UI 는 실제로 존재하는 채널만 보여도 OK 지만, 폼/양식 옵션은 마스터를 따라야 함)
-  const [productsResult, channelOptions, productMasterChannels, channelsUsage] =
-    await Promise.all([
-      tab === "products"
-        ? listProducts({
-            search: q || undefined,
-            channel: channel.length > 0 ? channel : undefined,
-            isComposite,
-            sort,
-            dir,
-            page,
-            pageSize: PAGE_SIZE,
-          })
-        : Promise.resolve({ rows: [], total: 0 }),
-      listChannelNames(),
-      getDistinctChannelNames(),
-      tab === "channels" ? listChannelsWithUsage() : Promise.resolve([]),
-    ])
+  // tab/view 에 따라 필요한 데이터만 fetch.
+  // - 상품 탭 + detail view: listProducts (long, 채널 필터는 행 필터)
+  // - 상품 탭 + wide view:   listProductsWide (사방넷 그룹, 채널은 컬럼 visibility 라 서버 무시)
+  // - 채널 탭:               listChannelsWithUsage
+  const [
+    detailResult,
+    wideResult,
+    channelOptions,
+    productMasterChannels,
+    channelsUsage,
+  ] = await Promise.all([
+    tab === "products" && view === "detail"
+      ? listProducts({
+          search: q || undefined,
+          channel: channel.length > 0 ? channel : undefined,
+          isComposite,
+          sort: sortDetail,
+          dir,
+          page,
+          pageSize: PAGE_SIZE,
+        })
+      : Promise.resolve({ rows: [], total: 0 }),
+    tab === "products" && view === "wide"
+      ? listProductsWide({
+          search: q || undefined,
+          isComposite,
+          sort: sortWide,
+          dir,
+          page,
+          pageSize: PAGE_SIZE,
+        })
+      : Promise.resolve({ rows: [], total: 0 }),
+    listChannelNames(),
+    getDistinctChannelNames(),
+    tab === "channels" ? listChannelsWithUsage() : Promise.resolve([]),
+  ])
 
   // 필터 옵션은 product_master DISTINCT + 마스터 union — 양쪽 모두 노출
   const filterChannelOptions = (() => {
@@ -108,28 +144,45 @@ export default async function ProductsPage({
     return Array.from(set).sort((a, b) => a.localeCompare(b, "ko"))
   })()
 
+  const typeFilter =
+    params.type === "composite"
+      ? "composite"
+      : params.type === "single"
+        ? "single"
+        : "all"
+
   return (
     <ProductsPageTabs tab={tab}>
       {tab === "products" ? (
-        <ProductsListClient
-          initialRows={productsResult.rows}
-          total={productsResult.total}
-          page={page}
-          pageSize={PAGE_SIZE}
-          search={q}
-          channels={channel}
-          typeFilter={
-            params.type === "composite"
-              ? "composite"
-              : params.type === "single"
-                ? "single"
-                : "all"
-          }
-          sort={sort}
-          dir={dir}
-          channelOptions={channelOptions}
-          filterChannelOptions={filterChannelOptions}
-        />
+        view === "wide" ? (
+          <ProductsWideClient
+            initialRows={wideResult.rows}
+            total={wideResult.total}
+            page={page}
+            pageSize={PAGE_SIZE}
+            search={q}
+            visibleChannels={channel}
+            typeFilter={typeFilter}
+            sort={sortWide}
+            dir={dir}
+            channelOptions={channelOptions}
+            filterChannelOptions={filterChannelOptions}
+          />
+        ) : (
+          <ProductsListClient
+            initialRows={detailResult.rows}
+            total={detailResult.total}
+            page={page}
+            pageSize={PAGE_SIZE}
+            search={q}
+            channels={channel}
+            typeFilter={typeFilter}
+            sort={sortDetail}
+            dir={dir}
+            channelOptions={channelOptions}
+            filterChannelOptions={filterChannelOptions}
+          />
+        )
       ) : (
         <ChannelsTab initial={channelsUsage} />
       )}

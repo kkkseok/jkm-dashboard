@@ -12,9 +12,11 @@ import { revalidatePath } from 'next/cache'
 import {
   importProductsOptsSchema,
   listProductsParamsSchema,
+  listProductsWideParamsSchema,
   productInputSchema,
   type ImportProductsOpts,
   type ListProductsParams,
+  type ListProductsWideParams,
   type ProductInput,
 } from './schema'
 
@@ -116,6 +118,159 @@ export async function listProducts(
     rows,
     total: totalRow[0]?.count ?? 0,
   }
+}
+
+/* ----------------------------------------------------------------------------
+ *  list (wide view) — 한 행 = 한 사방넷코드, 채널은 가로 컬럼
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Wide view 의 한 행 — 같은 사방넷코드의 모든 채널 행을 하나로 그룹.
+ *
+ * - `channels`: channelName → { id, productCode }
+ *   엑셀 입력 양식과 동일한 가로 펼침 표현. 비어있는 채널은 키가 없음.
+ * - `createdAt` / `updatedAt`: 그룹 내 max — 가장 최근에 만진 시점.
+ * - 그룹의 brand/product/composite 는 saveProductGroup 가 동일하게 적용하므로
+ *   첫 행의 값을 그대로 사용해도 일관.
+ */
+export type ProductWideRow = {
+  sabangnetCode: string
+  brandName: string
+  productName: string
+  isComposite: boolean
+  createdAt: Date
+  updatedAt: Date
+  channels: Record<string, { id: number; productCode: string }>
+}
+
+export type ListProductsWideResult = {
+  rows: ProductWideRow[]
+  /** 사방넷코드 distinct 단위 총 건수 (페이지네이션 분모). */
+  total: number
+}
+
+/**
+ * 페이지네이션 + 검색 + 구분 필터 + 정렬, 사방넷 단위.
+ *
+ * 흐름:
+ *   1) 조건에 매칭되는 사방넷코드 DISTINCT 를 정렬·페이지로 추림
+ *   2) 그 사방넷들의 모든 (채널, 상품코드) 행을 inArray 로 한 번에 fetch
+ *   3) JS 에서 사방넷별로 그룹핑 + 1)의 정렬 순서 보존
+ *
+ * 검색: sabangnet/productCode/productName/brand/channel ILIKE 어느 한 행이라도
+ *       매칭되면 그 사방넷 전체가 결과에 포함된다 (= 사용자가 "쿠팡" 검색 시
+ *       쿠팡에 등록된 사방넷의 GSshop 컬럼도 같이 보임).
+ *
+ * 정렬: sabangnetCode(자체) / brandName,productName(max) / isComposite(bool_or)
+ *       / createdAt(max).
+ */
+export async function listProductsWide(
+  params: ListProductsWideParams = {},
+): Promise<ListProductsWideResult> {
+  const { search, isComposite, sort, dir, page, pageSize } =
+    listProductsWideParamsSchema.parse(params)
+
+  const conditions: SQL[] = []
+
+  if (search && search.trim().length > 0) {
+    const q = `%${search.trim()}%`
+    const searchClause = or(
+      sql`${productMaster.sabangnetCode} ILIKE ${q}`,
+      sql`${productMaster.productCode} ILIKE ${q}`,
+      sql`${productMaster.productName} ILIKE ${q}`,
+      sql`${productMaster.brandName} ILIKE ${q}`,
+      sql`${productMaster.channelName} ILIKE ${q}`,
+    )
+    if (searchClause) conditions.push(searchClause)
+  }
+
+  if (typeof isComposite === 'boolean') {
+    conditions.push(eq(productMaster.isComposite, isComposite))
+  }
+
+  // 검색·구분 필터가 행 단위로 매칭되면 그 사방넷 전체를 노출하기 위해,
+  // 매칭된 행에서 사방넷코드를 distinct 로 뽑은 뒤 그 코드들의 모든 행을 다시 가져온다.
+  const where = conditions.length > 0 ? and(...conditions) : undefined
+
+  const orderExpr = (() => {
+    const directionSql = dir === 'asc' ? sql`asc` : sql`desc`
+    switch (sort) {
+      case 'brandName':
+        return sql`max(${productMaster.brandName}) ${directionSql}`
+      case 'productName':
+        return sql`max(${productMaster.productName}) ${directionSql}`
+      case 'isComposite':
+        return sql`bool_or(${productMaster.isComposite}) ${directionSql}`
+      case 'createdAt':
+        return sql`max(${productMaster.createdAt}) ${directionSql}`
+      case 'sabangnetCode':
+      default:
+        return sql`${productMaster.sabangnetCode} ${directionSql}`
+    }
+  })()
+
+  const offset = (page - 1) * pageSize
+
+  // 1) 사방넷코드 페이지
+  const snPageRows = await db
+    .select({ sabangnetCode: productMaster.sabangnetCode })
+    .from(productMaster)
+    .where(where)
+    .groupBy(productMaster.sabangnetCode)
+    .orderBy(orderExpr, asc(productMaster.sabangnetCode))
+    .limit(pageSize)
+    .offset(offset)
+
+  // 2) 총 사방넷 수
+  const totalRow = await db
+    .select({
+      count: sql<number>`count(distinct ${productMaster.sabangnetCode})::int`,
+    })
+    .from(productMaster)
+    .where(where)
+
+  const total = totalRow[0]?.count ?? 0
+  const sabangnetCodes = snPageRows.map((r) => r.sabangnetCode)
+
+  if (sabangnetCodes.length === 0) {
+    return { rows: [], total }
+  }
+
+  // 3) 그 사방넷들의 모든 행 fetch (검색에 매칭 안 된 채널 행까지 포함)
+  const detailRows = await db
+    .select()
+    .from(productMaster)
+    .where(inArray(productMaster.sabangnetCode, sabangnetCodes))
+
+  // 그룹핑
+  const groupMap = new Map<string, ProductWideRow>()
+  for (const r of detailRows) {
+    let group = groupMap.get(r.sabangnetCode)
+    if (!group) {
+      group = {
+        sabangnetCode: r.sabangnetCode,
+        brandName: r.brandName,
+        productName: r.productName,
+        isComposite: r.isComposite,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+        channels: {},
+      }
+      groupMap.set(r.sabangnetCode, group)
+    }
+    group.channels[r.channelName] = { id: r.id, productCode: r.productCode }
+    if (r.createdAt > group.createdAt) group.createdAt = r.createdAt
+    if (r.updatedAt > group.updatedAt) group.updatedAt = r.updatedAt
+  }
+
+  // 1) 의 정렬 순서 보존
+  const rows: ProductWideRow[] = []
+  for (const sn of sabangnetCodes) {
+    const g = groupMap.get(sn)
+    if (g) rows.push(g)
+  }
+
+  return { rows, total }
 }
 
 /* ----------------------------------------------------------------------------
