@@ -131,8 +131,9 @@ describe('enrichMinusData', () => {
     const revenueRows: unknown[][] = [
       makeRow({ A: 'header1' }),
       makeRow({ A: 'header2' }),
-      makeRow({ E: 'ORD-1', Y: 'P-100', BF: '브랜드 A' }),
-      makeRow({ E: 'ORD-2', Y: 'P-200', BF: '브랜드 B' }),
+      // 브랜드명 CJ제일제당 → 채널 규칙상 수수료·후정산금 유지(정상 계산 경로 검증)
+      makeRow({ E: 'ORD-1', Y: 'P-100', BF: 'CJ-씨제이제일제당(주)' }),
+      makeRow({ E: 'ORD-2', Y: 'P-200', BF: 'CJ-씨제이제일제당(주)' }),
     ]
 
     // revenue_profit_product: 판매세트 수량(AQ) + 상품명(AH, v1.7 2026-05-29)
@@ -165,7 +166,7 @@ describe('enrichMinusData', () => {
     expect(rows[0].onlineOrderNo).toBe('ORD-1')
     expect(rows[0].productCode).toBe('P-100')
     expect(rows[0].productName).toBe('상품 100')
-    expect(rows[0].brandName).toBe('브랜드 A')
+    expect(rows[0].brandName).toBe('CJ-씨제이제일제당(주)')
     expect(rows[0].K).toBe(1000)
     expect(rows[0].L).toBe(900)
     expect(rows[0].R).toBe(100)
@@ -194,6 +195,7 @@ describe('enrichMinusData', () => {
     expect(rows[2].productName).toBeNull()
     expect(rows[2].brandName).toBeNull()
     expect(rows[2].extraSettlement).toBeNull() // productCode null → cal lookup 못 함
+    // 브랜드명 null(revenue 조인 실패) → 채널 규칙 미적용(현행 유지, 2026-05-29).
     // 그래도 K/L/R 이 있으면 totalMargin 계산은 (null ?? 0) 처리로 진행
     // commissionRate = 1 - 550/500 = -0.1
     expect(rows[2].commissionRate).toBeCloseTo(-0.1, 10)
@@ -405,7 +407,8 @@ describe('enrichMinusData', () => {
     const revenueRows: unknown[][] = [
       makeRow({ A: 'h1' }),
       makeRow({ A: 'h2' }),
-      makeRow({ E: 'ORD-Z', Y: 'P-ZERO', AH: '상품 Z', BF: '브랜드 Z' }),
+      // CJ제일제당 브랜드(매출구분 null) → 수수료·후정산금 유지
+      makeRow({ E: 'ORD-Z', Y: 'P-ZERO', AH: '상품 Z', BF: 'CJ-씨제이제일제당(주)' }),
     ]
     const productRows: unknown[][] = [
       makeRow({ A: 'h1' }),
@@ -426,5 +429,91 @@ describe('enrichMinusData', () => {
     expect(diagnostics.missingExtraCount).toBe(0) // 누락 아님
     // totalMargin = 100 + 50 + 0 = 150
     expect(rows[0].totalMargin).toBeCloseTo(150, 10)
+  })
+
+  it('채널/브랜드 규칙: 수수료·후정산금 제거가 enrich 결과에 반영된다 (2026-05-29)', async () => {
+    const CJ = 'CJ-씨제이제일제당(주)'
+    // 모든 행 K=1000,L=900,R=100, cal 단가 50 × AQ 1 → extra=50.
+    //   유지 시 총마진액 = 100+50+50 = 200, 수수료 0.1, 후정산금 50.
+    //   제거 시 총마진액 = 100+50    = 150, 수수료/후정산금 null.
+    const salesRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      makeRow({ A: '토스', C: '2026-05-22', K: 1000, L: 900, R: 100, AE: 'ORD-T' }),
+      makeRow({ A: '쇼핑엔티', C: '2026-05-22', K: 1000, L: 900, R: 100, AE: 'ORD-S1' }),
+      makeRow({ A: '쇼핑엔티', C: '2026-05-22', K: 1000, L: 900, R: 100, AE: 'ORD-S2' }),
+      makeRow({ A: '쇼핑엔티', C: '2026-05-22', K: 1000, L: 900, R: 100, AE: 'ORD-S3' }),
+      makeRow({ A: 'CJ온스타일', C: '2026-05-22', K: 1000, L: 900, R: 100, AE: 'ORD-C' }),
+      makeRow({ A: 'CJ온스타일', C: '2026-05-22', K: 1000, L: 900, R: 100, AE: 'ORD-X' }),
+    ]
+    const revenueRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      makeRow({ E: 'ORD-T', Y: 'P-T', BF: CJ }),
+      makeRow({ E: 'ORD-S1', Y: 'P-S1', BF: CJ }),
+      makeRow({ E: 'ORD-S2', Y: 'P-S2', BF: CJ }),
+      makeRow({ E: 'ORD-S3', Y: 'P-S3', BF: CJ }),
+      makeRow({ E: 'ORD-C', Y: 'P-C', BF: CJ }),
+      makeRow({ E: 'ORD-X', Y: 'P-X', BF: '다른브랜드' }), // non-CJ
+    ]
+    const productRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      makeRow({ E: 'ORD-T', AH: '상품T', AQ: 1 }),
+      makeRow({ E: 'ORD-S1', AH: '상품S1', AQ: 1 }),
+      makeRow({ E: 'ORD-S2', AH: '상품S2', AQ: 1 }),
+      makeRow({ E: 'ORD-S3', AH: '상품S3', AQ: 1 }),
+      makeRow({ E: 'ORD-C', AH: '상품C', AQ: 1 }),
+      makeRow({ E: 'ORD-X', AH: '상품X', AQ: 1 }),
+    ]
+    const calMap = new Map<string, number>([
+      ['P-T', 50],
+      ['P-S1', 50],
+      ['P-S2', 50],
+      ['P-S3', 50],
+      ['P-C', 50],
+      ['P-X', 50],
+    ])
+    // 쇼핑엔티: S1=단품, S2=복합, S3=미등록(미매칭=null)
+    const productMasterMap = new Map([
+      ['P-S1', { isComposite: false, channelName: '', brandName: CJ, productName: '상품S1' }],
+      ['P-S2', { isComposite: true, channelName: '', brandName: CJ, productName: '상품S2' }],
+    ])
+
+    const { rows } = await enrichMinusData({
+      salesFile: makeWorkbookBuffer(salesRows),
+      revenueFile: makeWorkbookBuffer(revenueRows),
+      productFile: makeWorkbookBuffer(productRows),
+      calAmountMap: calMap,
+      productMasterMap,
+    })
+
+    const byOrder = Object.fromEntries(rows.map((r) => [r.onlineOrderNo, r]))
+
+    // A) CJ + 토스 → 제거
+    expect(byOrder['ORD-T'].commissionRate).toBeNull()
+    expect(byOrder['ORD-T'].settlementAmount).toBeNull()
+    expect(byOrder['ORD-T'].totalMargin).toBeCloseTo(150, 10)
+
+    // B) CJ + 쇼핑엔티 + 단품 → 제거
+    expect(byOrder['ORD-S1'].settlementAmount).toBeNull()
+    expect(byOrder['ORD-S1'].totalMargin).toBeCloseTo(150, 10)
+
+    // B) CJ + 쇼핑엔티 + 복합 → 유지
+    expect(byOrder['ORD-S2'].settlementAmount).toBeCloseTo(50, 10)
+    expect(byOrder['ORD-S2'].totalMargin).toBeCloseTo(200, 10)
+
+    // B) CJ + 쇼핑엔티 + 미매칭(null) → 유지 (사용자: 미매칭 놔둠)
+    expect(byOrder['ORD-S3'].settlementAmount).toBeCloseTo(50, 10)
+    expect(byOrder['ORD-S3'].totalMargin).toBeCloseTo(200, 10)
+
+    // CJ + 일반채널(CJ온스타일) → 유지
+    expect(byOrder['ORD-C'].settlementAmount).toBeCloseTo(50, 10)
+    expect(byOrder['ORD-C'].totalMargin).toBeCloseTo(200, 10)
+
+    // C) non-CJ 브랜드 → 제거
+    expect(byOrder['ORD-X'].commissionRate).toBeNull()
+    expect(byOrder['ORD-X'].settlementAmount).toBeNull()
+    expect(byOrder['ORD-X'].totalMargin).toBeCloseTo(150, 10)
   })
 })

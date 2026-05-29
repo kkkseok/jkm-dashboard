@@ -15,7 +15,7 @@
  * DB 의존 없음. 클라이언트사이드 호환.
  */
 
-import { computeProfit } from './calc'
+import { applyCommissionClearing, computeProfit } from './calc'
 import { PRODUCT_MAPPING, REVENUE_MAPPING, SALES_MAPPING } from './mapping'
 import {
   leftJoin,
@@ -121,6 +121,7 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
   for (const { left, revenue, product } of joined) {
     // 원본 (sales)
     const salesType = readStr(left, SALES_MAPPING.fields.salesType)
+    const salesChannel = normalizeSalesType(salesType)
     const salesDate = readStr(left, SALES_MAPPING.fields.salesDate)
     const onlineOrderNo = readStr(left, SALES_MAPPING.fields.onlineOrderNo)
     const K = readNum(left, SALES_MAPPING.fields.K)
@@ -161,22 +162,33 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     if (extraSettlement == null) missingExtraCount++
 
     // 계산 7개 (수수료/후정산/총마진액/총마진율/최종이익액/최종이익률)
-    const profit = computeProfit({ K, L, Q, R, extraSettlement })
+    const profitRaw = computeProfit({ K, L, Q, R, extraSettlement })
 
     // 일부 계산이 null 인 행 카운트 (기존 4개 컬럼 기준 유지 — finalProfit 계열은
     // Q=null 만으로도 null 이 자주 나올 수 있어 별도 카운트 미적용)
+    // 채널/브랜드 규칙에 의한 "의도적 제거"는 계산 실패가 아니므로 원본(profitRaw) 기준으로 집계.
     if (
-      profit.commissionRate == null ||
-      profit.settlementAmount == null ||
-      profit.totalMargin == null ||
-      profit.totalMarginRate == null
+      profitRaw.commissionRate == null ||
+      profitRaw.settlementAmount == null ||
+      profitRaw.totalMargin == null ||
+      profitRaw.totalMarginRate == null
     ) {
       computeNullCount++
     }
 
+    // 채널/브랜드별 수수료·후정산금 제거 후처리 (사용자 확정 2026-05-29).
+    const profit = applyCommissionClearing(profitRaw, {
+      brandName,
+      salesChannel,
+      isComposite,
+      R,
+      L,
+      extraSettlement,
+    })
+
     rows.push({
       salesType,
-      salesChannel: normalizeSalesType(salesType),
+      salesChannel,
       salesDate,
       onlineOrderNo,
       K,
