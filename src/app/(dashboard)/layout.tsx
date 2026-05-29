@@ -57,7 +57,7 @@ export default function DashboardLayout({
           <Sidebar />
         </aside>
 
-        <main className="flex-1 space-y-6 p-6">{children}</main>
+        <main className="min-w-0 flex-1 space-y-6 p-6">{children}</main>
       </div>
     </div>
   );
