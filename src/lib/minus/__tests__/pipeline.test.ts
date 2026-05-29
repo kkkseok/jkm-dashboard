@@ -126,20 +126,21 @@ describe('enrichMinusData', () => {
       [],
     ]
 
-    // revenue_profit_brand: 표시 정보 (v1.3: AG → AH, BF 추가). v1.6: AQ 는 product 에서 가져옴.
+    // revenue_profit_brand: 표시 정보 (productCode/brandName).
+    //   v1.6: AQ 는 product 에서. v1.7(2026-05-29): productName(AH) 도 product 로 이동.
     const revenueRows: unknown[][] = [
       makeRow({ A: 'header1' }),
       makeRow({ A: 'header2' }),
-      makeRow({ E: 'ORD-1', Y: 'P-100', AH: '상품 100', BF: '브랜드 A' }),
-      makeRow({ E: 'ORD-2', Y: 'P-200', AH: '상품 200', BF: '브랜드 B' }),
+      makeRow({ E: 'ORD-1', Y: 'P-100', BF: '브랜드 A' }),
+      makeRow({ E: 'ORD-2', Y: 'P-200', BF: '브랜드 B' }),
     ]
 
-    // revenue_profit_product: 판매세트 수량 (v1.6 2026-05-26)
+    // revenue_profit_product: 판매세트 수량(AQ) + 상품명(AH, v1.7 2026-05-29)
     const productRows: unknown[][] = [
       makeRow({ A: 'header1' }),
       makeRow({ A: 'header2' }),
-      makeRow({ E: 'ORD-1', AQ: 3 }),
-      makeRow({ E: 'ORD-2', AQ: 2 }),
+      makeRow({ E: 'ORD-1', AH: '상품 100', AQ: 3 }),
+      makeRow({ E: 'ORD-2', AH: '상품 200', AQ: 2 }),
     ]
 
     const salesBuf = makeWorkbookBuffer(salesRows)

@@ -4,9 +4,11 @@
  *
  * 출처:
  * - sales_status_basic 의 letter (A~AG): project_minus_logic.md (사용자 확정)
- * - revenue_profit_brand 의 letter (E, Y, AH, BF): 2026-05-24 사용자 확정
- *   (이전 v1: revenue_profit_product, productName AG → 두 파일이 같은 주문집합·같은 컬럼이지만
- *    product 쪽은 BF(브랜드)·AH(상품명) 채움률이 거의 0% 라 의미가 없었음. brand 파일로 통합)
+ * - revenue_profit_brand: E(key), Y(상품코드), BF(브랜드명) — 2026-05-24 사용자 확정
+ * - revenue_profit_product: E(key), AH(상품명), AQ(판매세트 수량)
+ *   (v1.3 때는 당시 샘플 파일에서 product 의 BF/AH 채움률이 낮아 표시 정보를 brand 로 통합했으나,
+ *    v1.7(2026-05-29) 신규 업로드 파일에선 product.AH 가 모두 채워져 있어 상품명을 product 로 되돌림.
+ *    상품코드·브랜드명은 그대로 brand 유지.)
  * - 헤더 행 수(2): excel-mapping/skill.md §3 (2행짜리 병합 헤더)
  */
 
@@ -39,8 +41,10 @@ export const REVENUE_MAPPING = {
   keyCol: 'E' as const,
   fields: {
     productCode: 'Y', // 상품코드
-    productName: 'AH', // 상품명 (v1.3: AG → AH 정정, 사용자 확정 2026-05-24)
     brandName: 'BF', // 브랜드명 (v1.3 신규)
+    // productName: 'AH' — v1.7 (2026-05-29) product 파일 AH 로 이동.
+    //   사용자가 brand 상품명 대신 product 파일 상품명을 쓰기로 확정.
+    //   (실제 업로드 파일에는 product.AH 가 모두 채워져 있음.)
   },
 } as const
 
@@ -57,6 +61,7 @@ export const PRODUCT_MAPPING = {
   /** product 의 매핑 key (= 주문번호, brand 와 동일 letter) */
   keyCol: 'E' as const,
   fields: {
+    productName: 'AH', // 상품명 (v1.7 2026-05-29: brand → product 파일로 이동, 사용자 확정)
     quantity: 'AQ', // 판매세트 수량
   },
 } as const

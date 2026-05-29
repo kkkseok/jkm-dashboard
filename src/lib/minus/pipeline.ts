@@ -132,12 +132,12 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     const T = readNum(left, SALES_MAPPING.fields.T)
     const U = readNum(left, SALES_MAPPING.fields.U)
 
-    // 매핑 (revenue_profit_brand) — 표시 정보만
+    // 매핑 (revenue_profit_brand) — 상품코드/브랜드명
     const productCode = revenue ? readStr(revenue, REVENUE_MAPPING.fields.productCode) : null
-    const productName = revenue ? readStr(revenue, REVENUE_MAPPING.fields.productName) : null
     const brandName = revenue ? readStr(revenue, REVENUE_MAPPING.fields.brandName) : null
 
-    // 매핑 (revenue_profit_product) — 판매세트 수량
+    // 매핑 (revenue_profit_product) — 상품명(v1.7) + 판매세트 수량
+    const productName = product ? readStr(product, PRODUCT_MAPPING.fields.productName) : null
     const quantity = product ? readNum(product, PRODUCT_MAPPING.fields.quantity) : null
 
     if (productCode != null) matchedCount++
