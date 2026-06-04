@@ -1,7 +1,12 @@
 "use client"
 
 import * as React from "react"
-import { FileSpreadsheetIcon, UploadCloudIcon } from "lucide-react"
+import {
+  DownloadIcon,
+  FileSpreadsheetIcon,
+  UploadCloudIcon,
+} from "lucide-react"
+import * as XLSX from "xlsx"
 import { toast } from "sonner"
 
 import type { CalAmount } from "@/db/schema/cal-amount"
@@ -25,6 +30,16 @@ import {
 const CHUNK_SIZE = 500
 
 const koInt = new Intl.NumberFormat("ko-KR")
+
+/** 빈 업로드 양식(헤더만) xlsx 를 생성해 브라우저 다운로드. */
+function downloadTemplate() {
+  const wb = XLSX.utils.book_new()
+  const ws = XLSX.utils.aoa_to_sheet([["상품코드", "후정산금"]])
+  // 열 폭 힌트
+  ws["!cols"] = [{ wch: 24 }, { wch: 14 }]
+  XLSX.utils.book_append_sheet(wb, ws, "후정산금")
+  XLSX.writeFile(wb, "후정산금_양식.xlsx")
+}
 
 type Phase = "idle" | "parsing" | "uploading" | "done" | "error"
 
@@ -177,6 +192,18 @@ export function CalAmountUploadDialog({
             보호 파일도 자동 처리됩니다.
           </DialogDescription>
         </DialogHeader>
+
+        <div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={downloadTemplate}
+          >
+            <DownloadIcon />
+            양식 다운로드
+          </Button>
+        </div>
 
         {/* 드롭존 (idle / error 일 때 활성) */}
         {(phase === "idle" || phase === "error") && (

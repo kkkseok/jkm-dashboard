@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 import {
   type ColumnDef,
+  type RowSelectionState,
   type SortingState,
   flexRender,
   getCoreRowModel,
@@ -23,6 +24,7 @@ import { toast } from "sonner"
 
 import type { CalAmount } from "@/db/schema/cal-amount"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -43,7 +45,10 @@ import {
 } from "@/components/ui/dialog"
 import { CalAmountFormDialog } from "@/components/cal-amount-form-dialog"
 import { CalAmountUploadDialog } from "@/components/cal-amount-upload-dialog"
-import { deleteCalAmount } from "@/lib/cal-amount/actions"
+import {
+  deleteCalAmount,
+  deleteCalAmountMany,
+} from "@/lib/cal-amount/actions"
 
 /** 업로드 중 화면 상단에 라이브로 유지할 최대 행 수 (DOM 폭증 방지). 나머지는 refresh 후 페이지네이션이 담당. */
 const LIVE_PREPEND_CAP = 200
@@ -136,6 +141,11 @@ export function CalAmountListClient({
   const [deleteTarget, setDeleteTarget] = React.useState<CalAmount | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
 
+  // 체크박스 일괄 선택/삭제 상태. key = String(row.id).
+  const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
+  const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false)
+  const [isBulkDeleting, setIsBulkDeleting] = React.useState(false)
+
   // 업로드 실시간 점진 반영용 오버레이 행 (id 내림차순, 최신이 위).
   // 청크가 INSERT 될 때마다 상단에 prepend 한다.
   const [uploadedRows, setUploadedRows] = React.useState<CalAmount[]>([])
@@ -144,7 +154,18 @@ export function CalAmountListClient({
   // initialRows 참조가 바뀔 때만 발동 → 갱신 직후 seamless 핸드오프.
   React.useEffect(() => {
     setUploadedRows([])
+    setRowSelection({})
   }, [initialRows])
+
+  // 선택된 행 id 목록 (선택 = value true).
+  const selectedIds = React.useMemo(
+    () =>
+      Object.entries(rowSelection)
+        .filter(([, v]) => v)
+        .map(([k]) => Number(k))
+        .filter((n) => Number.isInteger(n) && n > 0),
+    [rowSelection],
+  )
 
   function handleRowsInserted(rows: CalAmount[]) {
     // rows 는 해당 청크의 id 내림차순. 뒤 청크일수록 id 가 크므로 항상 상단에 prepend.
@@ -184,15 +205,62 @@ export function CalAmountListClient({
     }
   }
 
+  async function handleBulkDelete() {
+    if (selectedIds.length === 0) return
+    setIsBulkDeleting(true)
+    try {
+      const count = await deleteCalAmountMany(selectedIds)
+      toast.success(`${koInt.format(count)}건 삭제됨`)
+      setBulkDeleteOpen(false)
+      setRowSelection({})
+      startTransition(() => {
+        router.refresh()
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "알 수 없는 오류"
+      toast.error(`일괄 삭제 실패: ${message}`)
+    } finally {
+      setIsBulkDeleting(false)
+    }
+  }
+
   function handleSaved() {
     startTransition(() => {
       router.refresh()
     })
   }
 
-  // TanStack 컬럼 정의 — append-only 후정산금 (상품코드 + 후정산금 + 추가일 + 삭제)
+  // TanStack 컬럼 정의 — 선택 + 상품코드 + 후정산금 + 추가일 + 삭제
   const columns = React.useMemo<ColumnDef<CalAmount>[]>(
     () => [
+      {
+        id: "select",
+        enableSorting: false,
+        header: ({ table }) => (
+          <div className="flex items-center justify-center">
+            <Checkbox
+              checked={table.getIsAllPageRowsSelected()}
+              indeterminate={
+                table.getIsSomePageRowsSelected() &&
+                !table.getIsAllPageRowsSelected()
+              }
+              onCheckedChange={(checked) =>
+                table.toggleAllPageRowsSelected(!!checked)
+              }
+              aria-label="이 페이지 전체 선택"
+            />
+          </div>
+        ),
+        cell: ({ row }) => (
+          <div className="flex items-center justify-center">
+            <Checkbox
+              checked={row.getIsSelected()}
+              onCheckedChange={(checked) => row.toggleSelected(!!checked)}
+              aria-label={`${row.original.productCode} 선택`}
+            />
+          </div>
+        ),
+      },
       {
         accessorKey: "productCode",
         header: "상품코드",
@@ -261,7 +329,10 @@ export function CalAmountListClient({
   const table = useReactTable({
     data: displayRows,
     columns,
-    state: { sorting },
+    state: { sorting, rowSelection },
+    getRowId: (row) => String(row.id),
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -335,6 +406,32 @@ export function CalAmountListClient({
         )}
       </div>
 
+      {/* 선택 일괄 삭제 툴바 */}
+      {selectedIds.length > 0 && (
+        <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2">
+          <span className="text-sm">
+            {koInt.format(selectedIds.length)}건 선택됨
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setRowSelection({})}
+            >
+              선택 해제
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              <Trash2Icon />
+              선택 삭제 ({koInt.format(selectedIds.length)})
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* 테이블 + 빈상태 분기 */}
       <div className="rounded-md border">
         {displayRows.length === 0 ? (
@@ -368,10 +465,11 @@ export function CalAmountListClient({
         ) : (
           <Table className="table-fixed">
             <colgroup>
+              <col style={{ width: "48px" }} />
+              <col style={{ width: "260px" }} />
+              <col style={{ width: "160px" }} />
+              <col style={{ width: "180px" }} />
               <col style={{ width: "auto" }} />
-              <col style={{ width: "180px" }} />
-              <col style={{ width: "180px" }} />
-              <col style={{ width: "56px" }} />
             </colgroup>
             <TableHeader>
               {table.getHeaderGroups().map((hg) => (
@@ -507,6 +605,49 @@ export function CalAmountListClient({
               aria-label="삭제 확정"
             >
               {isDeleting ? "삭제 중…" : "삭제"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 일괄 삭제 확인 Dialog */}
+      <Dialog
+        open={bulkDeleteOpen}
+        onOpenChange={(open) => {
+          if (isBulkDeleting) return
+          setBulkDeleteOpen(open)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>선택 삭제 확인</DialogTitle>
+            <DialogDescription>
+              선택한 {koInt.format(selectedIds.length)}건의 이력을
+              삭제하시겠습니까?
+              <br />
+              이 작업은 되돌릴 수 없습니다. 삭제된 행이 어떤 상품코드의 최신
+              값이었다면 그 다음 행이 분석 시 계산에 사용됩니다.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setBulkDeleteOpen(false)}
+              disabled={isBulkDeleting}
+            >
+              취소
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting}
+              aria-label="선택 삭제 확정"
+            >
+              {isBulkDeleting
+                ? "삭제 중…"
+                : `${koInt.format(selectedIds.length)}건 삭제`}
             </Button>
           </DialogFooter>
         </DialogContent>

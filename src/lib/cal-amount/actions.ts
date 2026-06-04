@@ -2,7 +2,7 @@
 
 import { db } from '@/db/client'
 import { calAmount, type CalAmount } from '@/db/schema'
-import { desc, eq, ilike, sql } from 'drizzle-orm'
+import { desc, eq, ilike, inArray, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import {
   calAmountBatchSchema,
@@ -74,6 +74,20 @@ export async function deleteCalAmount(id: number): Promise<void> {
   }
   await db.delete(calAmount).where(eq(calAmount.id, id))
   revalidatePath(PATH)
+}
+
+/**
+ * 여러 행 일괄 삭제 (id 배열). 체크박스 선택 일괄 삭제용.
+ * 중복/비정상 id 는 무시하고, 실제 삭제 대상 건수를 반환.
+ */
+export async function deleteCalAmountMany(ids: number[]): Promise<number> {
+  const valid = Array.from(new Set(ids)).filter(
+    (id) => Number.isInteger(id) && id > 0,
+  )
+  if (valid.length === 0) return 0
+  await db.delete(calAmount).where(inArray(calAmount.id, valid))
+  revalidatePath(PATH)
+  return valid.length
 }
 
 export type ListCalAmountResult = {
