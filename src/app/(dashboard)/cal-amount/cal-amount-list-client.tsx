@@ -8,6 +8,7 @@ import {
   PlusIcon,
   SearchIcon,
   Trash2Icon,
+  UploadIcon,
   XIcon,
 } from "lucide-react"
 import {
@@ -41,7 +42,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { CalAmountFormDialog } from "@/components/cal-amount-form-dialog"
+import { CalAmountUploadDialog } from "@/components/cal-amount-upload-dialog"
 import { deleteCalAmount } from "@/lib/cal-amount/actions"
+
+/** 업로드 중 화면 상단에 라이브로 유지할 최대 행 수 (DOM 폭증 방지). 나머지는 refresh 후 페이지네이션이 담당. */
+const LIVE_PREPEND_CAP = 200
 
 type Props = {
   initialRows: CalAmount[]
@@ -127,8 +132,39 @@ export function CalAmountListClient({
 
   // Add Dialog 상태 (append-only이라 edit 없음)
   const [addOpen, setAddOpen] = React.useState(false)
+  const [uploadOpen, setUploadOpen] = React.useState(false)
   const [deleteTarget, setDeleteTarget] = React.useState<CalAmount | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
+
+  // 업로드 실시간 점진 반영용 오버레이 행 (id 내림차순, 최신이 위).
+  // 청크가 INSERT 될 때마다 상단에 prepend 한다.
+  const [uploadedRows, setUploadedRows] = React.useState<CalAmount[]>([])
+
+  // router.refresh() 로 서버가 새 initialRows 를 내려주면(=업로드분 포함) 오버레이를 비운다.
+  // initialRows 참조가 바뀔 때만 발동 → 갱신 직후 seamless 핸드오프.
+  React.useEffect(() => {
+    setUploadedRows([])
+  }, [initialRows])
+
+  function handleRowsInserted(rows: CalAmount[]) {
+    // rows 는 해당 청크의 id 내림차순. 뒤 청크일수록 id 가 크므로 항상 상단에 prepend.
+    setUploadedRows((prev) => [...rows, ...prev].slice(0, LIVE_PREPEND_CAP))
+  }
+
+  function handleUploadDone() {
+    startTransition(() => {
+      router.refresh()
+    })
+  }
+
+  // 화면 표시 행 = 업로드 오버레이(상단) + 서버 행. 업로드분은 새 id 라 중복 없음.
+  const displayRows = React.useMemo(
+    () =>
+      uploadedRows.length > 0
+        ? [...uploadedRows, ...initialRows]
+        : initialRows,
+    [uploadedRows, initialRows],
+  )
 
   async function handleDelete() {
     if (!deleteTarget) return
@@ -162,7 +198,9 @@ export function CalAmountListClient({
         header: "상품코드",
         enableSorting: false,
         cell: ({ row }) => (
-          <span className="font-mono text-xs">{row.original.productCode}</span>
+          <span className="block truncate font-mono text-xs">
+            {row.original.productCode}
+          </span>
         ),
       },
       {
@@ -221,7 +259,7 @@ export function CalAmountListClient({
   const [sorting, setSorting] = React.useState<SortingState>([])
 
   const table = useReactTable({
-    data: initialRows,
+    data: displayRows,
     columns,
     state: { sorting },
     onSortingChange: setSorting,
@@ -245,10 +283,16 @@ export function CalAmountListClient({
             최상단(최신)의 값이 분석 시 계산에 사용됩니다.
           </p>
         </div>
-        <Button onClick={() => setAddOpen(true)}>
-          <PlusIcon />
-          추가
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setUploadOpen(true)}>
+            <UploadIcon />
+            엑셀 업로드
+          </Button>
+          <Button onClick={() => setAddOpen(true)}>
+            <PlusIcon />
+            추가
+          </Button>
+        </div>
       </header>
 
       <Alert>
@@ -258,12 +302,9 @@ export function CalAmountListClient({
             : "아직 등록된 후정산금이 없습니다"}
         </AlertTitle>
         <AlertDescription>
-          최신 데이터가 최상단에 표시됩니다. 대량 import 는 별도 스크립트로
-          진행하세요:{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">
-            pnpm tsx scripts/import-cal-amount.ts
-          </code>
-          .
+          최신 데이터가 최상단에 표시됩니다. 같은 상품코드가 다시 추가되면
+          최상단(최신)의 값이 분석 시 계산에 사용됩니다. 엑셀로 대량
+          추가하려면 「엑셀 업로드」를 사용하세요.
         </AlertDescription>
       </Alert>
 
@@ -296,7 +337,7 @@ export function CalAmountListClient({
 
       {/* 테이블 + 빈상태 분기 */}
       <div className="rounded-md border">
-        {initialRows.length === 0 ? (
+        {displayRows.length === 0 ? (
           <div className="border-dashed p-12 text-center text-sm text-muted-foreground">
             {search ? (
               <>
@@ -325,7 +366,13 @@ export function CalAmountListClient({
             )}
           </div>
         ) : (
-          <Table>
+          <Table className="table-fixed">
+            <colgroup>
+              <col style={{ width: "auto" }} />
+              <col style={{ width: "180px" }} />
+              <col style={{ width: "180px" }} />
+              <col style={{ width: "56px" }} />
+            </colgroup>
             <TableHeader>
               {table.getHeaderGroups().map((hg) => (
                 <TableRow key={hg.id}>
@@ -410,6 +457,14 @@ export function CalAmountListClient({
         open={addOpen}
         onOpenChange={setAddOpen}
         onSaved={handleSaved}
+      />
+
+      {/* 엑셀 대량 업로드 Dialog */}
+      <CalAmountUploadDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        onRowsInserted={handleRowsInserted}
+        onDone={handleUploadDone}
       />
 
       {/* 삭제 확인 Dialog */}

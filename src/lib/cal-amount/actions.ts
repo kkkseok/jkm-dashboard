@@ -5,8 +5,10 @@ import { calAmount, type CalAmount } from '@/db/schema'
 import { desc, eq, ilike, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import {
+  calAmountBatchSchema,
   calAmountInputSchema,
   listCalAmountParamsSchema,
+  type CalAmountBatchItem,
   type CalAmountInput,
   type ListCalAmountParams,
 } from './schema'
@@ -30,6 +32,37 @@ export async function appendCalAmount(input: CalAmountInput): Promise<CalAmount>
 
   revalidatePath(PATH)
   return row
+}
+
+/**
+ * 대량 업로드용 **청크 단위** 다중행 INSERT.
+ *
+ * 클라이언트가 엑셀을 파싱·역순 정렬한 뒤 청크(기본 500행)로 나눠 호출한다.
+ * 한 번의 다중행 INSERT 로 처리하며 삽입된 행을 **INSERT 순서(= id 오름차순)** 로 반환.
+ *
+ * - 검증은 관대한 `calAmountBatchSchema` (폼의 엄격 정규식 미적용).
+ * - `revalidatePath` 는 호출하지 않는다. 청크마다 revalidate 하면 과도하므로
+ *   업로드 완료 후 호출자가 `router.refresh()` 로 한 번에 동기화한다.
+ * - "엑셀 1행 = 최신(가장 큰 id)" 은 호출자의 **역순 삽입 순서**로 보장된다
+ *   (이 함수는 받은 배열 순서대로 INSERT 할 뿐).
+ */
+export async function appendCalAmountBatch(
+  items: CalAmountBatchItem[],
+): Promise<CalAmount[]> {
+  const parsed = calAmountBatchSchema.parse(items)
+  if (parsed.length === 0) return []
+
+  const rows = await db
+    .insert(calAmount)
+    .values(
+      parsed.map((it) => ({
+        productCode: it.productCode,
+        extraSettlement: it.extraSettlement,
+      })),
+    )
+    .returning()
+
+  return rows
 }
 
 /**
