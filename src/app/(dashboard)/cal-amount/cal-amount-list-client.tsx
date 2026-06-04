@@ -237,7 +237,7 @@ export function CalAmountListClient({
         id: "select",
         enableSorting: false,
         header: ({ table }) => (
-          <div className="flex items-center justify-center">
+          <div className="flex items-center justify-start">
             <Checkbox
               checked={table.getIsAllPageRowsSelected()}
               indeterminate={
@@ -252,7 +252,7 @@ export function CalAmountListClient({
           </div>
         ),
         cell: ({ row }) => (
-          <div className="flex items-center justify-center">
+          <div className="flex items-center justify-start">
             <Checkbox
               checked={row.getIsSelected()}
               onCheckedChange={(checked) => row.toggleSelected(!!checked)}
@@ -273,14 +273,14 @@ export function CalAmountListClient({
       },
       {
         accessorKey: "extraSettlement",
-        header: () => <span className="block text-right">후정산금</span>,
+        header: "후정산금",
         enableSorting: true,
         sortingFn: "basic",
         cell: ({ row }) => {
           const v = row.original.extraSettlement
           return (
             <span
-              className={`block text-right tabular-nums ${
+              className={`block text-left tabular-nums ${
                 v < 0 ? "text-red-600" : ""
               }`}
             >
