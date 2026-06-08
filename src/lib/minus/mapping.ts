@@ -61,6 +61,7 @@ export const PRODUCT_MAPPING = {
   /** product 의 매핑 key (= 주문번호, brand 와 동일 letter) */
   keyCol: 'E' as const,
   fields: {
+    productCode: 'Y', // 상품코드 — 묶음 추가후정산금 합산의 cal_amount 룩업 키 (2026-06-08)
     productName: 'AH', // 상품명 (v1.7 2026-05-29: brand → product 파일로 이동, 사용자 확정)
     quantity: 'AQ', // 판매세트 수량
   },

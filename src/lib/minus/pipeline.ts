@@ -18,6 +18,7 @@
 import { applyCommissionClearing, computeProfit } from './calc'
 import { PRODUCT_MAPPING, REVENUE_MAPPING, SALES_MAPPING } from './mapping'
 import {
+  groupByKey,
   leftJoin,
   parseWorkbookToRows,
   readNum,
@@ -111,6 +112,12 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     product: joinedProduct[i]?.right ?? null,
   }))
 
+  // 묶음 상품 대응 (v1.8 2026-06-08): 주문번호별 product 행 그룹.
+  // sales 1행 ↔ product 여러 행(묶음)일 때 추가후정산금을 구성 상품별로 합산하기 위함.
+  // joinedProduct(첫 행)는 표시 대표값(productName/quantity)에만 쓰고,
+  // 합산은 이 그룹의 모든 행을 순회한다.
+  const productGroups = groupByKey(productRows, PRODUCT_MAPPING.keyCol)
+
   // 3~5. 각 행 enrich
   const rows: EnrichedRow[] = []
   let matchedCount = 0
@@ -150,15 +157,29 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
       productCode != null ? (productMasterMap.get(productCode) ?? null) : null
     const isComposite = masterRow ? masterRow.isComposite : null
 
-    // 룩업 (cal_amount × quantity) — v1.5 (2026-05-26 사용자 확정)
-    // extraSettlement = cal_amount 단가 × revenue 판매수량 (AQ)
-    // - cal_amount 매칭 실패 OR quantity null → extraSettlement = null
-    // - cal_amount 0 등록 + quantity 양수 → extraSettlement = 0 (누락 아님)
-    let extraSettlement: number | null = null
-    if (productCode != null && calAmountMap.has(productCode) && quantity != null) {
-      const perUnit = calAmountMap.get(productCode) ?? null
-      extraSettlement = perUnit != null ? perUnit * quantity : null
-    }
+    // 룩업 (cal_amount × quantity) — v1.5 (2026-05-26) / v1.8 묶음 합산 (2026-06-08)
+    // 묶음 상품: 주문번호의 product 행마다 (cal_amount[product.Y] × product.AQ) 를
+    // 구성 기여분(extra)으로 만들고, non-null 들을 합산(부분합)한다.
+    //   - 구성 상품 cal_amount 매칭 실패 OR quantity null → 그 구성 extra = null
+    //   - cal_amount 0 등록 + quantity 양수 → extra = 0 (누락 아님)
+    //   - 전부 미등록(모든 extra null) → extraSettlement = null (누락 KPI 집계)
+    //   - 단품(group 1행)은 기존과 동일 결과.
+    const productGroup =
+      onlineOrderNo != null ? productGroups.get(onlineOrderNo) ?? [] : []
+    const components = productGroup.map((prow) => {
+      const pc = readStr(prow, PRODUCT_MAPPING.fields.productCode)
+      const qty = readNum(prow, PRODUCT_MAPPING.fields.quantity)
+      const extra =
+        pc != null && calAmountMap.has(pc) && qty != null
+          ? (calAmountMap.get(pc) ?? 0) * qty
+          : null
+      return { productCode: pc, quantity: qty, extra }
+    })
+    const settledComponents = components.filter((c) => c.extra != null)
+    const extraSettlement: number | null =
+      settledComponents.length > 0
+        ? settledComponents.reduce((sum, c) => sum + (c.extra ?? 0), 0)
+        : null
     if (extraSettlement == null) missingExtraCount++
 
     // 계산 7개 (수수료/후정산/총마진액/총마진율/최종이익액/최종이익률)
@@ -204,6 +225,7 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
       brandName,
       quantity,
       isComposite,
+      components,
       extraSettlement,
       ...profit,
     })

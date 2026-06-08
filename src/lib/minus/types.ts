@@ -48,11 +48,24 @@ export type EnrichedRow = {
   // null = 매칭 실패 (UI 에 "미매칭" Badge 노출). 02_uiux_products §5-1.
   isComposite: boolean | null
 
+  // 묶음 구성 상품 (v1.8 2026-06-08) — sales 1행 ↔ product 여러 행(묶음 상품).
+  // product 파일에서 같은 주문번호를 가진 행들을 그대로 보존한다. 단품이면 length 1.
+  // 클라이언트 재계산(applyCalAmountUpdate)이 구성 상품별로 동작하도록 기여분(extra)까지 담는다.
+  //   - productCode = product.Y (cal_amount 룩업 키)
+  //   - quantity    = product.AQ (판매세트 수량)
+  //   - extra       = cal_amount[productCode] × quantity (룩업/수량 실패 시 null)
+  components: Array<{
+    productCode: string | null
+    quantity: number | null
+    extra: number | null
+  }>
+
   // 룩업 (cal_amount × quantity)
   // v1.5 (2026-05-26): extraSettlement 의 의미가 "cal_amount 의 단가 × 판매세트 수량" 으로 변경.
   // v1.6 (2026-05-26): quantity 출처가 product 파일로 명확화.
-  // - null = cal_amount 매칭 실패 OR product 매칭 실패(quantity 없음)
-  // - number = 최종 금액 (cal_amount 입력값 × quantity)
+  // v1.8 (2026-06-08): 묶음이면 components.extra 중 non-null 의 합(부분합).
+  // - null   = 모든 구성 상품이 cal_amount 매칭 실패(전부 미등록) OR product 매칭 실패
+  // - number = 등록된 구성 상품들의 (cal_amount 입력값 × quantity) 합
   extraSettlement: number | null
 
   // 계산 (7개) - profit-calc 스킬 수식 적용

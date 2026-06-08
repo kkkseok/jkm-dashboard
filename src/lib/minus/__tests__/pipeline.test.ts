@@ -140,8 +140,8 @@ describe('enrichMinusData', () => {
     const productRows: unknown[][] = [
       makeRow({ A: 'header1' }),
       makeRow({ A: 'header2' }),
-      makeRow({ E: 'ORD-1', AH: '상품 100', AQ: 3 }),
-      makeRow({ E: 'ORD-2', AH: '상품 200', AQ: 2 }),
+      makeRow({ E: 'ORD-1', Y: 'P-100', AH: '상품 100', AQ: 3 }),
+      makeRow({ E: 'ORD-2', Y: 'P-200', AH: '상품 200', AQ: 2 }),
     ]
 
     const salesBuf = makeWorkbookBuffer(salesRows)
@@ -173,6 +173,13 @@ describe('enrichMinusData', () => {
     // cal_amount 단가 50 × 수량 3 = 150
     expect(rows[0].quantity).toBe(3)
     expect(rows[0].extraSettlement).toBe(150)
+    // 단품 → components length 1, 기여분 보존
+    expect(rows[0].components).toHaveLength(1)
+    expect(rows[0].components[0]).toEqual({
+      productCode: 'P-100',
+      quantity: 3,
+      extra: 150,
+    })
     expect(rows[0].commissionRate).toBeCloseTo(0.1, 10)
     expect(rows[0].settlementAmount).toBeCloseTo(50, 10)
     // totalMargin = R(100) + settlement(50) + extraSettlement(150) = 300
@@ -413,7 +420,7 @@ describe('enrichMinusData', () => {
     const productRows: unknown[][] = [
       makeRow({ A: 'h1' }),
       makeRow({ A: 'h2' }),
-      makeRow({ E: 'ORD-Z', AQ: 2 }),
+      makeRow({ E: 'ORD-Z', Y: 'P-ZERO', AQ: 2 }),
     ]
     const calMap = new Map<string, number>([['P-ZERO', 0]])
 
@@ -459,12 +466,12 @@ describe('enrichMinusData', () => {
     const productRows: unknown[][] = [
       makeRow({ A: 'h1' }),
       makeRow({ A: 'h2' }),
-      makeRow({ E: 'ORD-T', AH: '상품T', AQ: 1 }),
-      makeRow({ E: 'ORD-S1', AH: '상품S1', AQ: 1 }),
-      makeRow({ E: 'ORD-S2', AH: '상품S2', AQ: 1 }),
-      makeRow({ E: 'ORD-S3', AH: '상품S3', AQ: 1 }),
-      makeRow({ E: 'ORD-C', AH: '상품C', AQ: 1 }),
-      makeRow({ E: 'ORD-X', AH: '상품X', AQ: 1 }),
+      makeRow({ E: 'ORD-T', Y: 'P-T', AH: '상품T', AQ: 1 }),
+      makeRow({ E: 'ORD-S1', Y: 'P-S1', AH: '상품S1', AQ: 1 }),
+      makeRow({ E: 'ORD-S2', Y: 'P-S2', AH: '상품S2', AQ: 1 }),
+      makeRow({ E: 'ORD-S3', Y: 'P-S3', AH: '상품S3', AQ: 1 }),
+      makeRow({ E: 'ORD-C', Y: 'P-C', AH: '상품C', AQ: 1 }),
+      makeRow({ E: 'ORD-X', Y: 'P-X', AH: '상품X', AQ: 1 }),
     ]
     const calMap = new Map<string, number>([
       ['P-T', 50],
@@ -515,5 +522,97 @@ describe('enrichMinusData', () => {
     expect(byOrder['ORD-X'].commissionRate).toBeNull()
     expect(byOrder['ORD-X'].settlementAmount).toBeNull()
     expect(byOrder['ORD-X'].totalMargin).toBeCloseTo(150, 10)
+  })
+
+  /**
+   * 묶음 상품: sales 1행 ↔ product 여러 행. 추가후정산금은 각 구성 상품의
+   * cal_amount단가 × AQ 를 모두 합산(부분합)한다. (사용자 확정 2026-06-08)
+   *   실데이터 예: 주문 20260603029208 = 상품 2종(AQ 1, AQ 2).
+   */
+  describe('묶음 상품 추가후정산금 합산', () => {
+    // 공통: sales 1행(R=100, L=900), brand 1행(대표 표시), product 2행(구성 상품).
+    function buildBundle(calMap: Map<string, number>) {
+      const salesRows: unknown[][] = [
+        makeRow({ A: 'h1' }),
+        makeRow({ A: 'h2' }),
+        makeRow({
+          A: 'CJ온스타일',
+          C: '2026-06-03',
+          K: 1000,
+          L: 900,
+          R: 100,
+          AE: 'ORD-BUNDLE',
+        }),
+      ]
+      // brand 는 같은 주문에 여러 행이 있어도 첫 행이 대표(표시 productCode/brandName).
+      const revenueRows: unknown[][] = [
+        makeRow({ A: 'h1' }),
+        makeRow({ A: 'h2' }),
+        makeRow({ E: 'ORD-BUNDLE', Y: 'P-A', BF: 'CJ-씨제이제일제당(주)' }),
+        makeRow({ E: 'ORD-BUNDLE', Y: 'P-B', BF: 'CJ-씨제이제일제당(주)' }),
+      ]
+      // product 2행 = 구성 상품 2종. AQ 가 서로 다름.
+      const productRows: unknown[][] = [
+        makeRow({ A: 'h1' }),
+        makeRow({ A: 'h2' }),
+        makeRow({ E: 'ORD-BUNDLE', Y: 'P-A', AH: '구성상품 A', AQ: 1 }),
+        makeRow({ E: 'ORD-BUNDLE', Y: 'P-B', AH: '구성상품 B', AQ: 2 }),
+      ]
+      return enrichMinusData({
+        salesFile: makeWorkbookBuffer(salesRows),
+        revenueFile: makeWorkbookBuffer(revenueRows),
+        productFile: makeWorkbookBuffer(productRows),
+        calAmountMap: calMap,
+        productMasterMap: new Map(),
+      })
+    }
+
+    it('두 구성 상품 모두 등록 → 합산 (10×1 + 100×2 = 210)', async () => {
+      const { rows, diagnostics } = await buildBundle(
+        new Map([
+          ['P-A', 10],
+          ['P-B', 100],
+        ]),
+      )
+      expect(rows).toHaveLength(1)
+      const r = rows[0]
+      // components 2종 + 각 기여분
+      expect(r.components).toHaveLength(2)
+      expect(r.components[0]).toEqual({ productCode: 'P-A', quantity: 1, extra: 10 })
+      expect(r.components[1]).toEqual({ productCode: 'P-B', quantity: 2, extra: 200 })
+      // 합산
+      expect(r.extraSettlement).toBe(210)
+      // 표시 대표값: 첫 구성 quantity, brand 첫 행 productCode/brandName
+      expect(r.quantity).toBe(1)
+      expect(r.productCode).toBe('P-A')
+      expect(r.brandName).toBe('CJ-씨제이제일제당(주)')
+      // totalMargin = R(100) + settlement(50) + extra(210) = 360
+      expect(r.totalMargin).toBeCloseTo(360, 10)
+      expect(diagnostics.missingExtraCount).toBe(0)
+    })
+
+    it('부분합: 구성 중 하나만 등록 → 등록분만 합산 (10×1 = 10)', async () => {
+      const { rows, diagnostics } = await buildBundle(new Map([['P-A', 10]]))
+      const r = rows[0]
+      expect(r.components[0].extra).toBe(10)
+      expect(r.components[1].extra).toBeNull() // P-B 미등록
+      // 부분합: 등록된 P-A 만
+      expect(r.extraSettlement).toBe(10)
+      // 부분 누락이라도 extraSettlement != null → 누락 KPI 미집계
+      expect(diagnostics.missingExtraCount).toBe(0)
+      // totalMargin = 100 + 50 + 10 = 160
+      expect(r.totalMargin).toBeCloseTo(160, 10)
+    })
+
+    it('전부 미등록 → extraSettlement null + 누락 집계', async () => {
+      const { rows, diagnostics } = await buildBundle(new Map())
+      const r = rows[0]
+      expect(r.components[0].extra).toBeNull()
+      expect(r.components[1].extra).toBeNull()
+      expect(r.extraSettlement).toBeNull()
+      expect(diagnostics.missingExtraCount).toBe(1)
+      // totalMargin = 100 + 50 + 0 = 150 (extra ?? 0)
+      expect(r.totalMargin).toBeCloseTo(150, 10)
+    })
   })
 })

@@ -216,3 +216,28 @@ export function leftJoin(
     return { left: l, right: key === '' ? null : idx.get(key) ?? null }
   })
 }
+
+/**
+ * 키 컬럼 기준으로 행들을 그룹핑. 키는 String().trim() 으로 정규화하고
+ * 그룹 내 순서는 입력 순서를 보존한다(첫 등장 = 대표 행).
+ * 묶음 상품(sales 1행 ↔ revenue 여러 행) 처리에 사용. (v1.8 2026-06-08)
+ *
+ * 키가 null/공백인 행은 어떤 그룹에도 넣지 않는다.
+ */
+export function groupByKey(
+  rows: unknown[][],
+  keyCol: string,
+): Map<string, unknown[][]> {
+  const map = new Map<string, unknown[][]>()
+  const k = colToIdx(keyCol)
+  for (const r of rows) {
+    const raw = r[k]
+    if (raw == null || raw === '') continue
+    const key = String(raw).trim()
+    if (key === '') continue
+    const arr = map.get(key)
+    if (arr) arr.push(r)
+    else map.set(key, [r])
+  }
+  return map
+}
