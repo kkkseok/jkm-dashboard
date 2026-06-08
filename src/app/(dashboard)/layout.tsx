@@ -12,8 +12,6 @@ import {
 } from "@/components/ui/sheet";
 import { Sidebar } from "@/components/sidebar";
 
-const USER_EMAIL = "seokcess@glitzy.kr";
-
 export default function DashboardLayout({
   children,
 }: {
@@ -46,10 +44,6 @@ export default function DashboardLayout({
         </Sheet>
 
         <span className="font-semibold">JKM Dashboard</span>
-
-        <div className="ml-auto text-sm text-muted-foreground">
-          {USER_EMAIL}
-        </div>
       </header>
 
       <div className="flex flex-1">

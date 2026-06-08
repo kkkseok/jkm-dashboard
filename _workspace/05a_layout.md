@@ -34,7 +34,6 @@ pnpm dev
 - [ ] `/minus` 진입 시 사이드바의 "마이너스 매출이익률" 항목에 `bg-accent` 배경 + 좌측 2px primary 보더가 보임
 - [ ] `/cal-amount` 진입 시 사이드바의 "추가후정산금 관리" 항목 활성, "마이너스 매출이익률"은 비활성으로 전환
 - [ ] "품절 관리", "그룹 업로드" 항목은 회색(muted-foreground) + 우측 "예정" 배지 + 클릭 불가(cursor-not-allowed)
-- [ ] 헤더 우측에 `seokcess@glitzy.kr` 정적 표시
 - [ ] 헤더 좌측 제품명 "JKM Dashboard" 표시
 - [ ] 데스크탑 폭(≥768px)에서 좌측 `w-60` 사이드바 sticky 표시, 본문 `p-6 space-y-6`
 - [ ] 모바일 폭(<768px)으로 줄이면 사이드바가 사라지고 헤더 좌측에 햄버거(MenuIcon) 노출

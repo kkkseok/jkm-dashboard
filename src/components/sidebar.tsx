@@ -35,7 +35,6 @@ const NAV_SECTIONS: NavSection[] = [
 ];
 
 const APP_VERSION = "v0.1.0";
-const USER_EMAIL = "seokcess@glitzy.kr";
 
 export type SidebarProps = {
   onNavigate?: () => void;
@@ -98,7 +97,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
       <div className="border-t px-3 py-3 text-xs text-muted-foreground">
         <div>{APP_VERSION}</div>
-        <div className="truncate">{USER_EMAIL}</div>
       </div>
     </nav>
   );
