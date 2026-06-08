@@ -414,7 +414,12 @@ export function ProductsWideClient({
               onValueChange={(v) => setTypeFilterUrl(v as TypeFilter)}
             >
               <SelectTrigger aria-label="구분 필터" className="w-32">
-                <SelectValue />
+                {/* raw value(all/single/composite) 노출 방지 — 한글 라벨로 매핑 */}
+                <SelectValue>
+                  {(v) =>
+                    v === "single" ? "단품만" : v === "composite" ? "복합만" : "전체"
+                  }
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">전체</SelectItem>
