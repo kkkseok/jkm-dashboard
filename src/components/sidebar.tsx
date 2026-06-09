@@ -21,7 +21,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: "분석",
     items: [
       { label: "마이너스 매출이익률", href: "/minus" },
-      { label: "그룹 업로드", href: "/group", disabled: true },
+      { label: "그룹 업로드", href: "/group-upload" },
       { label: "품절 관리", href: "/soldout", disabled: true },
     ],
   },
