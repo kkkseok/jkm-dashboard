@@ -281,7 +281,7 @@ export function CalAmountListClient({
           return (
             <span
               className={`block text-left tabular-nums ${
-                v < 0 ? "text-red-600" : ""
+                v < 0 ? "text-negative" : ""
               }`}
             >
               {formatKRW(v)}
