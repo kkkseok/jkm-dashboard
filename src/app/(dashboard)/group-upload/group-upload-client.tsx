@@ -14,15 +14,88 @@ import {
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { parseNoMapping } from "@/lib/group/gen/parse"
 import { resolveGroupUpload } from "@/lib/group/gen/actions"
-import { downloadGroupUpload } from "@/lib/group/gen/build"
-import type { ResolveResult } from "@/lib/group/gen/types"
+import { downloadGroupUpload, toOutputAoa } from "@/lib/group/gen/build"
+import type { OutputRow, ResolveResult } from "@/lib/group/gen/types"
 import type { GroupSourceStatus } from "@/lib/group/actions"
 
 const koInt = new Intl.NumberFormat("ko-KR")
 
 type Phase = "idle" | "parsing" | "resolving" | "ready" | "error"
+
+/** 미리보기 최대 표시 행(대량 파일 렌더 보호). 초과분은 다운로드에 그대로 포함. */
+/**
+ * 미리보기에 표시할 컬럼 인덱스 (group_upload 13컬럼 중 값이 있는 8개만).
+ * 항상 공란인 C 그룹규격·D 그룹단가·H 규격·K 단가구분·L 공인바코드 는 가로폭 절약 위해 숨김.
+ * (다운로드 파일은 build.toOutputAoa 가 13컬럼 전체를 그대로 출력)
+ */
+const VISIBLE_COLS = [0, 1, 4, 5, 6, 8, 9, 12]
+/** 우측 정렬 숫자 컬럼 인덱스: A 그룹일련번호 / E 순번 / I 수량 / J 단가. */
+const NUM_COLS = new Set([0, 4, 8, 9])
+
+/** 결과를 group_upload(다운로드와 동일 AOA) 형식으로 테이블 노출. 글자 작게·공란 컬럼 숨겨 가로 스크롤 최소화. */
+function OutputPreview({ rows }: { rows: OutputRow[] }) {
+  const aoa = React.useMemo(() => toOutputAoa(rows), [rows])
+  const headers = aoa[0] as string[]
+  const body = aoa.slice(1)
+
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium text-muted-foreground">
+        결과 미리보기 — group_upload 형식 ({koInt.format(body.length)}행)
+      </p>
+      <div className="max-h-[480px] overflow-auto rounded-md border">
+        <Table className="text-xs">
+          <TableHeader>
+            <TableRow>
+              {VISIBLE_COLS.map((ci) => (
+                <TableHead
+                  key={ci}
+                  className={NUM_COLS.has(ci) ? "h-8 px-2 text-right" : "h-8 px-2"}
+                >
+                  {headers[ci]}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {body.map((r, ri) => {
+              const groupStart = ri > 0 && r[0] !== body[ri - 1][0]
+              return (
+                <TableRow
+                  key={ri}
+                  className={groupStart ? "border-t-2 border-t-foreground/15" : undefined}
+                >
+                  {VISIBLE_COLS.map((ci) => {
+                    const cell = r[ci]
+                    const text = cell === "" ? "" : String(cell)
+                    return (
+                      <TableCell
+                        key={ci}
+                        className={NUM_COLS.has(ci) ? "px-2 py-1 text-right tabular-nums" : "px-2 py-1"}
+                      >
+                        {text}
+                      </TableCell>
+                    )
+                  })}
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  )
+}
 
 /** no_mapping_0609.xlsx → group_upload_0609.xlsx 처럼 이름 이어받기. */
 function outputFileName(inputName: string): string {
@@ -162,6 +235,7 @@ export function GroupUploadClient({
           {phase === "resolving" && <p className="text-sm text-muted-foreground">매핑 중…</p>}
 
           {phase === "ready" && result && (
+            <div className="space-y-3">
             <div className="space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
               <p>
                 그룹{" "}
@@ -196,6 +270,9 @@ export function GroupUploadClient({
               {result.rows.length === 0 && (
                 <p className="text-amber-600">매핑된 그룹이 없어 출력할 행이 없습니다.</p>
               )}
+            </div>
+
+              {result.rows.length > 0 && <OutputPreview rows={result.rows} />}
             </div>
           )}
 
