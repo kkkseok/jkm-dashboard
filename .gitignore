@@ -44,4 +44,8 @@ next-env.d.ts
 /docs/
 
 # 하네스 워크스페이스 중간 산출물은 보존, 임시 파일만 제외
+# (.md 설계문서는 트래킹, 일회성 검증/적재 스크립트와 로그는 제외)
 /_workspace/_tmp/
+/_workspace/*.mjs
+/_workspace/*.ts
+/_workspace/*.log
