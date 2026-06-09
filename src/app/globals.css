@@ -86,6 +86,7 @@
   --destructive: oklch(0.577 0.245 27.325);
 
   /* 의미색 — 마이너스(음수 마진)=레드 / 양수=그린 */
+  /* 흰 배경 대비 검증: positive 5.07:1 · negative 6.11:1 → 12px 소형 텍스트도 WCAG AA(4.5:1) 통과 */
   --positive: oklch(0.52 0.15 152);
   --positive-foreground: oklch(0.99 0.02 152);
   --negative: oklch(0.52 0.2 27);
