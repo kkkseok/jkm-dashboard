@@ -20,9 +20,9 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: "분석",
     items: [
-      { label: "마이너스 매출이익률", href: "/minus" },
-      { label: "그룹 업로드", href: "/group-upload" },
-      { label: "품절 관리", href: "/soldout", disabled: true },
+      { label: "마이너스", href: "/minus" },
+      { label: "그룹", href: "/group-upload" },
+      { label: "품절", href: "/soldout", disabled: true },
     ],
   },
   {
@@ -49,12 +49,16 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       className="flex h-full flex-col gap-1 py-4 text-sm"
       aria-label="기본 메뉴"
     >
-      <div className="flex-1 space-y-4">
-        {NAV_SECTIONS.map((section) => (
-          <div key={section.label} className="space-y-1">
-            <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {section.label}
-            </div>
+      <div className="flex-1">
+        {NAV_SECTIONS.map((section, idx) => (
+          <div key={section.label}>
+            {idx > 0 && (
+              <div className="mx-3 my-4 border-t" aria-hidden="true" />
+            )}
+            <div className="space-y-1">
+              <div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {section.label}
+              </div>
             <ul className="space-y-0.5">
               {section.items.map((item) => {
                 const isActive = pathname === item.href;
@@ -92,6 +96,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 );
               })}
             </ul>
+            </div>
           </div>
         ))}
       </div>
