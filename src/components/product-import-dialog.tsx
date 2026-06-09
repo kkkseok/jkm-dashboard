@@ -535,7 +535,7 @@ function PreviewStage({
           미리보기 (상위 5건)
         </p>
         <div className="overflow-x-auto rounded-md border">
-          <Table className="min-w-[60rem] table-fixed">
+          <Table className="min-w-[60rem] table-fixed" density="compact">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-32">사방넷코드</TableHead>

@@ -43,6 +43,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { ScrollSyncContainer } from "@/components/scroll-sync"
 import { CalAmountFormDialog } from "@/components/cal-amount-form-dialog"
 import { CalAmountUploadDialog } from "@/components/cal-amount-upload-dialog"
 import {
@@ -463,8 +464,9 @@ export function CalAmountListClient({
             )}
           </div>
         ) : (
-          <Table className="table-fixed">
-            <colgroup>
+          <ScrollSyncContainer>
+            <Table className="table-fixed" density="compact">
+              <colgroup>
               <col style={{ width: "48px" }} />
               <col style={{ width: "260px" }} />
               <col style={{ width: "160px" }} />
@@ -531,6 +533,7 @@ export function CalAmountListClient({
               ))}
             </TableBody>
           </Table>
+          </ScrollSyncContainer>
         )}
       </div>
 

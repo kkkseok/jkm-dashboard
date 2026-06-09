@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
+import { ScrollSyncContainer } from "@/components/scroll-sync"
 import {
   Command,
   CommandEmpty,
@@ -562,8 +563,8 @@ export function ProductsWideClient({
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
+          <ScrollSyncContainer>
+            <Table density="compact">
               <TableHeader>
                 <TableRow>
                   <TableHead className="sticky left-0 z-10 whitespace-nowrap bg-background">
@@ -674,7 +675,7 @@ export function ProductsWideClient({
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </ScrollSyncContainer>
         )}
       </div>
 

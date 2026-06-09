@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
+import { ScrollSyncContainer } from "@/components/scroll-sync"
 import {
   Command,
   CommandEmpty,
@@ -677,8 +678,8 @@ export function ProductsListClient({
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
+          <ScrollSyncContainer>
+            <Table density="compact">
               <TableHeader>
                 {table.getHeaderGroups().map((hg) => (
                   <TableRow key={hg.id}>
@@ -713,7 +714,7 @@ export function ProductsListClient({
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </ScrollSyncContainer>
         )}
       </div>
 

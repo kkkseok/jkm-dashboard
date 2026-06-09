@@ -4,7 +4,11 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+function Table({
+  className,
+  density = "default",
+  ...props
+}: React.ComponentProps<"table"> & { density?: "default" | "compact" }) {
   return (
     <div
       data-slot="table-container"
@@ -12,7 +16,12 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
     >
       <table
         data-slot="table"
-        className={cn("w-full caption-bottom text-sm", className)}
+        className={cn(
+          "w-full caption-bottom text-sm",
+          // 데이터 테이블 통일 밀도: 12px · 헤더 h-8 · 셀 py-1.5
+          density === "compact" && "text-xs [&_th]:h-8 [&_td]:py-1.5",
+          className
+        )}
         {...props}
       />
     </div>
