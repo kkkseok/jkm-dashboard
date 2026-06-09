@@ -117,7 +117,7 @@ export async function resolveGroupUpload(
   for (const line of deduped) {
     const m = marketByCode.get(line.marketCode)
     if (!m || !m.selfCode) {
-      unmapped.push({ marketCode: line.marketCode, marketProductName: line.marketProductName, reason: '상품 마스터(group_market_map)에 마켓코드 없음' })
+      unmapped.push({ marketCode: line.marketCode, marketProductName: line.marketProductName, reason: '상품 마스터에 마켓코드 없음' })
       continue
     }
 
@@ -132,7 +132,7 @@ export async function resolveGroupUpload(
       else comps.push({ selfCode: m.selfCode, quantity: m.quantity ?? 1, erpCode: e.erpCode, erpName: e.erpName })
     } else {
       const items = bundleBySelf.get(m.selfCode) ?? []
-      if (items.length === 0) failReason = `묶음 구성(group_bundle_item) 없음 (자체코드 ${m.selfCode})`
+      if (items.length === 0) failReason = `묶음 구성 정보 없음 (자체코드 ${m.selfCode})`
       for (const c of items) {
         const e = erpBySelf.get(c.componentSelfCode)
         if (!e) { failReason = `묶음 내품 ERP 코드 없음 (자체코드 ${c.componentSelfCode})`; break }

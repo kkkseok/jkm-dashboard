@@ -54,13 +54,13 @@ function OutputPreview({ rows }: { rows: OutputRow[] }) {
         결과 미리보기 — group_upload 형식 ({koInt.format(body.length)}행)
       </p>
       <div className="max-h-[480px] overflow-auto rounded-md border">
-        <Table className="text-xs">
+        <Table density="compact">
           <TableHeader>
             <TableRow>
               {VISIBLE_COLS.map((ci) => (
                 <TableHead
                   key={ci}
-                  className={NUM_COLS.has(ci) ? "h-8 px-2 text-right" : "h-8 px-2"}
+                  className={NUM_COLS.has(ci) ? "text-right" : undefined}
                 >
                   {headers[ci]}
                 </TableHead>
@@ -81,7 +81,7 @@ function OutputPreview({ rows }: { rows: OutputRow[] }) {
                     return (
                       <TableCell
                         key={ci}
-                        className={NUM_COLS.has(ci) ? "px-2 py-1 text-right tabular-nums" : "px-2 py-1"}
+                        className={NUM_COLS.has(ci) ? "text-right tabular-nums" : undefined}
                       >
                         {text}
                       </TableCell>
@@ -168,7 +168,7 @@ export function GroupUploadClient({
   return (
     <div className="space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold">그룹 업로드 생성</h1>
+        <h1 className="text-2xl font-semibold">그룹</h1>
         <p className="text-sm text-muted-foreground">
           매핑 안 된 주문(no_mapping.xlsx)을 올리면 그룹 상품 등록 파일(group_upload.xlsx)로 변환합니다.
         </p>

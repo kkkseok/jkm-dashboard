@@ -263,7 +263,7 @@ export function GroupSourcesClient({ status }: { status: GroupSourceStatus }) {
 
       <div className="grid gap-4 md:grid-cols-2">
         <UploadCard<ProductMasterParseResult>
-          title="상품 마스터 (raw)"
+          title="상품 마스터 원본"
           description="product_master.xlsx 원본. 마켓코드 → 자체코드·상품명·구성수량과 묶음 구성을 갱신합니다."
           lastCount={status.marketCount}
           lastUpdatedAt={status.marketUpdatedAt}
@@ -296,7 +296,7 @@ export function GroupSourcesClient({ status }: { status: GroupSourceStatus }) {
         />
 
         <UploadCard<ProductInfoParseResult>
-          title="ERP 코드 (product_info)"
+          title="ERP 코드"
           description="product_info.xlsx. 자체코드 → ERPia 상품코드·상품명 매핑을 갱신합니다."
           lastCount={status.erpCount}
           lastUpdatedAt={status.erpUpdatedAt}

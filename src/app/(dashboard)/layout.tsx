@@ -17,8 +17,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 
 /** 라우트별 헤더 표기 제목. */
 const PAGE_TITLES: Record<string, string> = {
-  "/minus": "마이너스 매출이익률",
-  "/group-upload": "그룹 업로드",
+  "/minus": "마이너스",
+  "/group-upload": "그룹",
   "/products": "상품 마스터",
   "/cal-amount": "후정산금 관리",
   "/group-sources": "그룹 매핑 소스",
