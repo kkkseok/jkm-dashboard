@@ -168,7 +168,6 @@ export function GroupUploadClient({
   return (
     <div className="space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold">그룹</h1>
         <p className="text-sm text-muted-foreground">
           매핑 안 된 주문(no_mapping.xlsx)을 올리면 그룹 상품 등록 파일(group_upload.xlsx)로 변환합니다.
         </p>
@@ -244,14 +243,14 @@ export function GroupUploadClient({
               </p>
               <p className="text-xs text-muted-foreground">
                 입력 {koInt.format(result.stats.inputCount)} · 중복 마켓코드 {koInt.format(result.stats.dupCount)}(첫 등장만) · 미매핑{" "}
-                <span className={result.stats.unmappedCount > 0 ? "font-medium text-amber-600" : ""}>
+                <span className={result.stats.unmappedCount > 0 ? "font-medium text-warning" : ""}>
                   {koInt.format(result.stats.unmappedCount)}
                 </span>
               </p>
 
               {result.unmapped.length > 0 && (
                 <details className="text-xs text-muted-foreground">
-                  <summary className="cursor-pointer font-medium text-amber-600">
+                  <summary className="cursor-pointer font-medium text-warning">
                     미매핑 {koInt.format(result.unmapped.length)}건 (출력 제외 — 마스터 갱신 후 재시도)
                   </summary>
                   <ul className="mt-1 max-h-40 space-y-0.5 overflow-y-auto">
@@ -268,7 +267,7 @@ export function GroupUploadClient({
               )}
 
               {result.rows.length === 0 && (
-                <p className="text-amber-600">매핑된 그룹이 없어 출력할 행이 없습니다.</p>
+                <p className="text-warning">매핑된 그룹이 없어 출력할 행이 없습니다.</p>
               )}
             </div>
 

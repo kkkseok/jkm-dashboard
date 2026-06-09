@@ -51,7 +51,6 @@ export function ProductsPageTabs({ tab, children }: ProductsPageTabsProps) {
   return (
     <div className="space-y-6">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">상품 마스터</h1>
         <p className="text-sm text-muted-foreground">
           채널별 상품코드와 단품/복합 구분 + 판매 채널 마스터를 관리합니다.
         </p>

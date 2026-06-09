@@ -68,9 +68,9 @@ export default function DashboardLayout({
 
         <div className="h-5 w-px bg-border" aria-hidden="true" />
 
-        <span className="truncate text-sm font-medium text-muted-foreground">
+        <h1 className="truncate text-sm font-semibold text-foreground">
           {pageTitle}
-        </span>
+        </h1>
 
         <div className="ml-auto flex items-center gap-1">
           <ThemeToggle />

@@ -36,6 +36,8 @@
   --color-positive-foreground: var(--positive-foreground);
   --color-negative: var(--negative);
   --color-negative-foreground: var(--negative-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -89,6 +91,10 @@
   --negative: oklch(0.52 0.2 27);
   --negative-foreground: oklch(0.99 0.02 27);
 
+  /* 경고 — amber (부분 누락·미매핑 경고 등) */
+  --warning: oklch(0.6 0.14 68);
+  --warning-foreground: oklch(0.99 0.02 80);
+
   --border: oklch(0.915 0.007 265);
   --input: oklch(0.915 0.007 265);
   --ring: oklch(0.4 0.155 264);
@@ -135,6 +141,9 @@
   --positive-foreground: oklch(0.18 0.03 152);
   --negative: oklch(0.7 0.18 22);
   --negative-foreground: oklch(0.18 0.03 22);
+
+  --warning: oklch(0.8 0.15 80);
+  --warning-foreground: oklch(0.2 0.03 80);
 
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);

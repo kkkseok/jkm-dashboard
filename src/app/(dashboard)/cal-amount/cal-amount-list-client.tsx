@@ -349,7 +349,6 @@ export function CalAmountListClient({
     <div className="space-y-6">
       <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold">후정산금 관리</h1>
           <p className="text-sm text-muted-foreground">
             상품코드별 후정산금 이력입니다. 같은 상품코드가 다시 추가되면
             최상단(최신)의 값이 분석 시 계산에 사용됩니다.

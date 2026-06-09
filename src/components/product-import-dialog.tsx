@@ -229,7 +229,7 @@ export function ProductImportDialog({
               className={cn(
                 "flex flex-col items-center justify-center gap-3 rounded-lg border-2 p-8 text-center transition-colors",
                 dragOver
-                  ? "border-solid border-blue-600 bg-blue-50/30"
+                  ? "border-solid border-primary bg-primary/10"
                   : "border-dashed border-muted-foreground/30",
               )}
             >
@@ -449,8 +449,7 @@ function PreviewStage({
                   key={ch}
                   variant={isNew ? "default" : "secondary"}
                   className={cn(
-                    isNew &&
-                      "border-amber-500 bg-amber-100 text-amber-900 dark:bg-amber-200/20 dark:text-amber-200",
+                    isNew && "border-warning bg-warning/15 text-warning",
                   )}
                   aria-label={isNew ? `${ch} (신규 채널)` : `${ch} (기존 채널)`}
                 >
@@ -750,7 +749,7 @@ function Metric({
         className={cn(
           "text-lg font-semibold tabular-nums",
           tone === "ok" && "text-foreground",
-          tone === "warn" && "text-amber-600",
+          tone === "warn" && "text-warning",
           tone === "err" && value > 0 && "text-destructive",
           tone === "neutral" && "text-muted-foreground",
         )}

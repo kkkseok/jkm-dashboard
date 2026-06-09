@@ -186,7 +186,7 @@ function UploadCard<T>({
             {renderPreview(parsed)}
             {warns.length > 0 && (
               <details className="text-xs text-muted-foreground">
-                <summary className="cursor-pointer font-medium text-amber-600">
+                <summary className="cursor-pointer font-medium text-warning">
                   경고 {koInt.format(warns.length)}건
                 </summary>
                 <ul className="mt-1 max-h-32 space-y-0.5 overflow-y-auto">
@@ -254,7 +254,6 @@ export function GroupSourcesClient({ status }: { status: GroupSourceStatus }) {
   return (
     <div className="space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold">그룹 매핑 소스</h1>
         <p className="text-sm text-muted-foreground">
           현황 · 마켓 {koInt.format(status.marketCount)} · 묶음{" "}
           {koInt.format(status.bundleCount)} · ERP {koInt.format(status.erpCount)}
