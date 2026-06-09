@@ -125,6 +125,18 @@ export function readStr(row: unknown[], colLetter: string): string | null {
 }
 
 /**
+ * 복호화된 ArrayBuffer 만 반환 (셀 수식 등 워크북 전체 접근이 필요한 호출자용).
+ * parseWorkbookToRows 는 행 배열만 주므로, BG 수식(.f) 같은 셀 메타가 필요하면
+ * 이 함수로 복호화한 뒤 직접 XLSX.read(cellFormula:true) 한다. (group raw 파서)
+ */
+export async function decryptWorkbookBuffer(
+  input: File | ArrayBuffer,
+): Promise<ArrayBuffer> {
+  const buf = input instanceof ArrayBuffer ? input : await input.arrayBuffer()
+  return decryptIfNeeded(buf)
+}
+
+/**
  * 워크북의 첫 시트를 header:1 모드로 파싱.
  * - 클라이언트(File) 와 서버(ArrayBuffer) 둘 다 허용.
  * - cellDates: true 로 날짜 셀을 Date 로 자동 변환.
