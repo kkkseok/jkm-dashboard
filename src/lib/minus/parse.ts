@@ -39,18 +39,81 @@ async function ensureBufferGlobal(): Promise<void> {
 }
 
 /**
+ * `xlsx` 가 번들한 CFB(Compound File Binary) 유틸 접근.
+ * ESM 네임스페이스(import * as XLSX)에서는 cjs-module-lexer 가 CFB 를 named export 로
+ * 잡지 못해 `XLSX.CFB` 가 undefined 일 수 있다(Node ESM). 번들러/Node 양쪽을 모두 커버.
+ */
+interface CfbModule {
+  read(d: Uint8Array, o: { type: 'buffer' }): unknown
+  find(c: unknown, path: string): { content: ArrayLike<number> } | null
+  write(c: unknown, o: { type: 'buffer' }): Uint8Array
+  utils: { cfb_add(c: unknown, path: string, data: Uint8Array): void }
+}
+function getCfbModule(): CfbModule | null {
+  const x = XLSX as unknown as { CFB?: CfbModule; default?: { CFB?: CfbModule } }
+  return x.CFB ?? x.default?.CFB ?? null
+}
+
+/**
+ * officecrypto-tool(0.0.19)은 agile 암호화의 keyEncryptor 노드를
+ * `keyEncryptor['p:encryptedKey']` 로 **문자열 하드코딩**해 찾는다. 그러나 일부 도구는
+ * 동일 네임스페이스를 prefix 없이 default namespace 로 선언한
+ * `<encryptedKey xmlns=".../password" .../>` 형태로 EncryptionInfo 를 내보낸다(예:
+ * 사내 그룹 업로드 파일 중 일부). 이 경우 노드를 못 찾아
+ * `Cannot read properties of undefined (reading 'encryptedKeyValue')` 로 죽는다
+ * — 비번이 틀린 게 아니라 포맷을 못 읽는 것.
+ *
+ * → 복호화 직전에 EncryptionInfo XML 의 prefix 없는 <encryptedKey> 를 <p:encryptedKey>
+ *   로 치환하고 CFB 를 재패킹한다. xml2js 는 네임스페이스 인식을 하지 않으므로 태그명만
+ *   맞추면 라이브러리가 양쪽 포맷을 모두 읽는다. 이미 정상(p: prefix)인 파일·표준 암호화·
+ *   구형 .xls(EncryptionInfo 없음)는 건드리지 않고 원본을 그대로 반환한다.
+ */
+function normalizeAgileEncryptionInfo(buf: ArrayBuffer): ArrayBuffer {
+  const CFB = getCfbModule()
+  if (!CFB) return buf
+  try {
+    const cfb = CFB.read(new Uint8Array(buf), { type: 'buffer' })
+    const ei = CFB.find(cfb, '/EncryptionInfo')
+    if (!ei || !ei.content) return buf
+    const content = Uint8Array.from(ei.content)
+    const HEADER = 8 // version(4) + reserved(4) — agile XML 앞 고정 헤더, 보존
+    if (content.length <= HEADER) return buf
+    const xml = new TextDecoder('utf-8').decode(content.subarray(HEADER))
+    // agile 이 아니거나(=encryptedKey 엘리먼트 없음) 이미 prefix 면 손대지 않는다.
+    if (!/<encryptedKey[\s/>]/.test(xml) || /<p:encryptedKey[\s/>]/.test(xml)) return buf
+    const fixedXml = xml.replace(/<(\/?)encryptedKey([\s/>])/g, '<$1p:encryptedKey$2')
+    const body = new TextEncoder().encode(fixedXml)
+    const newContent = new Uint8Array(HEADER + body.length)
+    newContent.set(content.subarray(0, HEADER), 0)
+    newContent.set(body, HEADER)
+    CFB.utils.cfb_add(cfb, '/EncryptionInfo', newContent)
+    const out = CFB.write(cfb, { type: 'buffer' })
+    return out.buffer.slice(
+      out.byteOffset,
+      out.byteOffset + out.byteLength,
+    ) as ArrayBuffer
+  } catch {
+    // 정규화 실패 시 원본으로 진행 — 실제 복호화 단계에서 에러를 처리한다.
+    return buf
+  }
+}
+
+/**
  * 암호화된 .xlsx 면 고정 비번 '1111' 로 복호화한 ArrayBuffer 반환.
  * 일반 .xlsx (PK 시작) 면 입력을 그대로 반환.
  */
 async function decryptIfNeeded(buf: ArrayBuffer): Promise<ArrayBuffer> {
   if (!hasCfbSignature(buf)) return buf
   await ensureBufferGlobal()
+  // 일부 도구가 만든 암호화 .xlsx 는 officecrypto-tool 이 못 읽는 네임스페이스 표기를
+  // 쓴다 → 복호화 전에 EncryptionInfo XML 을 정규화한다(normalizeAgileEncryptionInfo 주석).
+  const normalized = normalizeAgileEncryptionInfo(buf)
   const { default: officeCrypto } = await import('officecrypto-tool')
   try {
     // 라이브러리는 Buffer 타입을 선언하지만, 내부에서 ArrayBuffer/Uint8Array 입력을
     // Buffer.from() 으로 자동 변환하므로 Uint8Array 를 그대로 넘겨도 동작.
     const decrypted = await officeCrypto.decrypt(
-      new Uint8Array(buf) as unknown as Buffer,
+      new Uint8Array(normalized) as unknown as Buffer,
       { password: FIXED_XLSX_PASSWORD },
     )
     // Buffer(=Uint8Array) → ArrayBuffer (offset 보정)
@@ -59,9 +122,18 @@ async function decryptIfNeeded(buf: ArrayBuffer): Promise<ArrayBuffer> {
       decrypted.byteOffset + decrypted.byteLength,
     ) as ArrayBuffer
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    // officecrypto-tool 은 비번 불일치 시 'The password is incorrect' 를 던진다.
+    if (/password is incorrect/i.test(msg)) {
+      throw new Error(
+        '비밀번호가 일치하지 않습니다. 이 파일은 사내 비밀번호(1111) 가 아닌 ' +
+          '다른 비밀번호로 보호되어 있습니다.',
+        { cause: e },
+      )
+    }
     throw new Error(
-      '비밀번호로 보호된 파일을 열 수 없습니다. ' +
-        '사내 비밀번호(1111) 가 아닌 다른 비밀번호로 설정되어 있거나, 손상된 파일일 수 있습니다.',
+      '암호화된 파일을 여는 중 오류가 발생했습니다. ' +
+        '파일이 손상되었거나 지원하지 않는 암호화 방식일 수 있습니다.',
       { cause: e },
     )
   }
