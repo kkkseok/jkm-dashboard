@@ -34,6 +34,10 @@ export type EnrichedRow = {
   T: number | null // 이익액(판매가)
   U: number | null // 이익률(판매가)
 
+  // 매핑 from revenue_profit_product — 수취인명 (P). (2026-06-12 사용자 확정)
+  // 표시 위치: 온라인주문번호와 상품코드 사이. 묶음은 대표(첫) 행. product 매칭 실패 시 null.
+  recipientName: string | null // P
+
   // 매핑 from revenue_profit_brand — 표시 정보 (상품 식별, 브랜드명)
   productCode: string | null // Y
   productName: string | null // AH (v1.3)

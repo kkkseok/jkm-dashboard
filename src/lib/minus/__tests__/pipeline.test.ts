@@ -650,9 +650,9 @@ describe('enrichMinusData', () => {
       const productRows: unknown[][] = [
         makeRow({ A: 'h1' }),
         makeRow({ A: 'h2' }),
-        makeRow({ E: 'ORD-M', F: 'VCHA-001', Y: 'P-A', AH: '상품A', AQ: 1, BA: 700, BB: 50, BC: 5.5 }),
-        makeRow({ E: 'ORD-M', F: 'VCHB-001', Y: 'P-B', AH: '상품B', AQ: 1, BA: 1400, BB: 100, BC: 5.6 }),
-        makeRow({ E: 'ORD-M', F: 'VCHC-001', Y: 'P-C', AH: '상품C', AQ: 1, BA: 2100, BB: 150, BC: 5.7 }),
+        makeRow({ E: 'ORD-M', F: 'VCHA-001', Y: 'P-A', AH: '상품A', P: '수취인A', AQ: 1, BA: 700, BB: 50, BC: 5.5 }),
+        makeRow({ E: 'ORD-M', F: 'VCHB-001', Y: 'P-B', AH: '상품B', P: '수취인B', AQ: 1, BA: 1400, BB: 100, BC: 5.6 }),
+        makeRow({ E: 'ORD-M', F: 'VCHC-001', Y: 'P-C', AH: '상품C', P: '수취인C', AQ: 1, BA: 2100, BB: 150, BC: 5.7 }),
       ]
       const { rows } = await enrichMinusData({
         salesFile: makeWorkbookBuffer(salesRows),
@@ -665,6 +665,7 @@ describe('enrichMinusData', () => {
       // 회귀 방지 핵심: 각 라인이 자기 상품으로 매칭(첫 상품 P-A 로 통일되지 않음)
       expect(rows.map((r) => r.productCode)).toEqual(['P-A', 'P-B', 'P-C'])
       expect(rows.map((r) => r.productName)).toEqual(['상품A', '상품B', '상품C'])
+      expect(rows.map((r) => r.recipientName)).toEqual(['수취인A', '수취인B', '수취인C'])
       expect(rows.map((r) => r.brandName)).toEqual(['브랜드A', '브랜드B', '브랜드C'])
       expect(rows.map((r) => r.cost)).toEqual([700, 1400, 2100])
       expect(rows.map((r) => r.finalProfit)).toEqual([50, 100, 150])

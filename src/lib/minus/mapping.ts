@@ -73,6 +73,7 @@ export const PRODUCT_MAPPING = {
   fields: {
     productCode: 'Y', // 상품코드 — 묶음 추가후정산금 합산의 cal_amount 룩업 키 (2026-06-08)
     productName: 'AH', // 상품명 (v1.7 2026-05-29: brand → product 파일로 이동, 사용자 확정)
+    recipientName: 'P', // 수취인명 (2026-06-12 사용자 확정). 표시 위치: 주문번호와 상품코드 사이.
     quantity: 'AQ', // 판매세트 수량
     cost: 'BA', // 원가총액 — 분석 결과 표시용 (헤더 "원가총액", 서식 #,##0). 반품은 음수. 묶음은 대표(첫) 행 값.
     // 최종이익액/최종이익률 — 계산하지 않고 product 파일 값을 그대로 표시 (2026-06-12 사용자 확정).

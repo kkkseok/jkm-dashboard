@@ -156,8 +156,9 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     const productCode = revenue ? readStr(revenue, REVENUE_MAPPING.fields.productCode) : null
     const brandName = revenue ? readStr(revenue, REVENUE_MAPPING.fields.brandName) : null
 
-    // 매핑 (revenue_profit_product) — 상품명(v1.7) + 판매세트 수량
+    // 매핑 (revenue_profit_product) — 상품명(v1.7) + 수취인명(P) + 판매세트 수량
     const productName = product ? readStr(product, PRODUCT_MAPPING.fields.productName) : null
+    const recipientName = product ? readStr(product, PRODUCT_MAPPING.fields.recipientName) : null
     const quantity = product ? readNum(product, PRODUCT_MAPPING.fields.quantity) : null
     // 원가총액(BA) — 분석 결과 표시용. 묶음은 대표(첫) 행. product 매칭 실패 시 null.
     const cost = product ? readNum(product, PRODUCT_MAPPING.fields.cost) : null
@@ -246,6 +247,7 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
       S,
       T,
       U,
+      recipientName,
       productCode,
       productName,
       brandName,
