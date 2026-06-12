@@ -147,7 +147,7 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     // 매핑 (revenue_profit_product) — 상품명(v1.7) + 판매세트 수량
     const productName = product ? readStr(product, PRODUCT_MAPPING.fields.productName) : null
     const quantity = product ? readNum(product, PRODUCT_MAPPING.fields.quantity) : null
-    // 원가(AZ) — 분석 결과 표시용. 묶음은 대표(첫) 행. product 매칭 실패 시 null.
+    // 원가총액(BA) — 분석 결과 표시용. 묶음은 대표(첫) 행. product 매칭 실패 시 null.
     const cost = product ? readNum(product, PRODUCT_MAPPING.fields.cost) : null
 
     // 최종이익액/최종이익률 — 계산하지 않고 product 파일 BB/BC 를 그대로 표시 (2026-06-12 사용자 확정).

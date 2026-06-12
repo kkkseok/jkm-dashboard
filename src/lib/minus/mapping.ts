@@ -64,7 +64,7 @@ export const PRODUCT_MAPPING = {
     productCode: 'Y', // 상품코드 — 묶음 추가후정산금 합산의 cal_amount 룩업 키 (2026-06-08)
     productName: 'AH', // 상품명 (v1.7 2026-05-29: brand → product 파일로 이동, 사용자 확정)
     quantity: 'AQ', // 판매세트 수량
-    cost: 'AZ', // 원가 — 분석 결과 표시용 (헤더 "원가", 서식 #,##0). 묶음은 대표(첫) 행 값.
+    cost: 'BA', // 원가총액 — 분석 결과 표시용 (헤더 "원가총액", 서식 #,##0). 반품은 음수. 묶음은 대표(첫) 행 값.
     // 최종이익액/최종이익률 — 계산하지 않고 product 파일 값을 그대로 표시 (2026-06-12 사용자 확정).
     //   기존: calc.ts 가 finalProfit=R-Q, finalProfitRate=finalProfit/L 로 계산.
     //   변경: product 파일 BB("공급가기준 이익액")/BC("공급가기준 이익율")를 직접 읽어 주입.

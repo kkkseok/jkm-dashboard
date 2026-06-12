@@ -44,8 +44,8 @@ export type EnrichedRow = {
   // product 매칭 실패 시 null.
   quantity: number | null
 
-  // 매핑 from revenue_profit_product — 원가 (AZ, 헤더 "원가"). (2026-06-12 사용자 확정)
-  // sales 의 M(원가)과 별개 — 분석 결과 표시는 이 product.AZ 값을 쓴다.
+  // 매핑 from revenue_profit_product — 원가총액 (BA, 헤더 "원가총액"). (2026-06-12 사용자 확정)
+  // sales 의 M(원가)과 별개 — 분석 결과 표시는 이 product.BA 값을 쓴다. 반품은 음수.
   // 묶음은 대표(첫) 행 값. product 매칭 실패 시 null. 표시 위치: 공급가(L)와 이익액(R) 사이.
   cost: number | null
 
