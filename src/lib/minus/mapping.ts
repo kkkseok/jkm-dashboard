@@ -71,6 +71,7 @@ export const PRODUCT_MAPPING = {
     finalProfit: 'BB', // 최종이익액 (서식 #,##0)
     // 최종이익률. BC 서식이 #,##0.00"%" 라 raw 값이 이미 퍼센트 수치(예: 17.52 = 17.52%).
     //   UI percentColumn 이 ×100 하므로 파이프라인에서 /100 해 비율(0~1)로 변환한다.
+    //   (BC 서식은 항상 고정 — 사용자 확정 2026-06-12. 따라서 런타임 범위 가드는 두지 않는다.)
     finalProfitRate: 'BC',
   },
 } as const

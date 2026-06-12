@@ -15,11 +15,20 @@ import type { EnrichedRow, PipelineDiagnostics } from "@/lib/minus/types"
 
 export type RowWithId = EnrichedRow & { _rowId: number }
 
+/**
+ * 스냅샷 스키마 버전 — EnrichedRow 의미가 바뀌면 올린다. 다르면 옛 캐시는 조용히 폐기.
+ *  2: 2026-06-12 — finalProfit/finalProfitRate 를 product 파일 BB/BC 값으로, 원가총액(cost, BA) 컬럼 추가.
+ *     (이전엔 finalProfit=R-Q 계산값이라 그대로 복원하면 잘못된 수치가 정상값처럼 보임 → 무효화.)
+ */
+const SCHEMA_VERSION = 2
+
 export type AnalysisSnapshot = {
   rows: RowWithId[]
   diagnostics: PipelineDiagnostics
   analyzedFileNames: { sales: string; revenue: string; product: string }
   analyzedAt: string // ISO
+  /** saveToIDB 가 스탬프. loadFromIDB 가 현재 SCHEMA_VERSION 과 다르면 폐기. 클라이언트는 설정 불필요. */
+  schemaVersion?: number
 }
 
 /* ---------------------------------------------------------------
@@ -66,9 +75,15 @@ export async function loadFromIDB(): Promise<AnalysisSnapshot | null> {
       const req = tx.objectStore(STORE).get(KEY)
       req.onsuccess = () => {
         const v = req.result as AnalysisSnapshot | undefined
-        resolve(
-          v && Array.isArray(v.rows) && v.diagnostics ? v : null,
-        )
+        const valid =
+          !!v && Array.isArray(v.rows) && !!v.diagnostics
+        // 스키마 버전 불일치(또는 버전 없는 옛 스냅샷) → 조용히 폐기 + 캐시 삭제.
+        if (valid && v!.schemaVersion === SCHEMA_VERSION) {
+          resolve(v!)
+        } else {
+          if (valid) void clearIDB() // 옛 스키마 레코드는 지워 다음 방문에 다시 안 읽히게.
+          resolve(null)
+        }
       }
       req.onerror = () => resolve(null)
       tx.oncomplete = () => db.close()
@@ -82,9 +97,10 @@ export async function saveToIDB(snap: AnalysisSnapshot): Promise<boolean> {
   if (typeof indexedDB === "undefined") return false
   try {
     const db = await openDB()
+    const stamped: AnalysisSnapshot = { ...snap, schemaVersion: SCHEMA_VERSION }
     return await new Promise<boolean>((resolve) => {
       const tx = db.transaction(STORE, "readwrite")
-      tx.objectStore(STORE).put(snap, KEY)
+      tx.objectStore(STORE).put(stamped, KEY)
       tx.oncomplete = () => {
         db.close()
         resolve(true)
