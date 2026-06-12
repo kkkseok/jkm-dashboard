@@ -15,7 +15,13 @@
 export const SALES_MAPPING = {
   fileName: 'sales_status_basic',
   headerRows: 2,
-  /** sales 의 매핑 key (= 온라인주문번호) */
+  /**
+   * 라인 단위 조인 키 (= 전표번호). 2026-06-12 변경: 주문번호(AE)는 라인 단위로 유일하지 않아
+   * 한 주문에 상품이 여러 개면 첫 상품으로 뭉개졌다. 전표번호(AF)가 sales 행마다 유일(실데이터 검증).
+   * product/brand 의 전표번호(F)는 `-001/-002…` 접미사가 붙으므로 base 로 맞춘다(parse.voucherBase).
+   */
+  voucherCol: 'AF' as const,
+  /** 주문번호 (표시·검색·전표 없는 행의 폴백 조인 키) */
   keyCol: 'AE' as const,
   fields: {
     salesType: 'A', // 매출구분 (예: "[B2B]", "A-CJ온스타일(jkman2)")
@@ -37,7 +43,9 @@ export const REVENUE_MAPPING = {
   fileName: 'revenue_profit_brand',
   /** 병합 헤더 2행 (실데이터로 확인 완료 2026-05-24). */
   headerRows: 2,
-  /** revenue 의 매핑 key (= 주문번호) */
+  /** 라인 단위 조인 키 (= 전표번호, base 매칭). product 와 동일 letter. */
+  voucherCol: 'F' as const,
+  /** 주문번호 (폴백 조인 키) */
   keyCol: 'E' as const,
   fields: {
     productCode: 'Y', // 상품코드
@@ -58,7 +66,9 @@ export const REVENUE_MAPPING = {
 export const PRODUCT_MAPPING = {
   fileName: 'revenue_profit_product',
   headerRows: 2,
-  /** product 의 매핑 key (= 주문번호, brand 와 동일 letter) */
+  /** 라인 단위 조인 키 (= 전표번호, base 매칭). 한 전표에 상품 여러 개면 진짜 묶음. */
+  voucherCol: 'F' as const,
+  /** 주문번호 (폴백 조인 키, brand 와 동일 letter) */
   keyCol: 'E' as const,
   fields: {
     productCode: 'Y', // 상품코드 — 묶음 추가후정산금 합산의 cal_amount 룩업 키 (2026-06-08)

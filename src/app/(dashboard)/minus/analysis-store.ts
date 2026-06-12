@@ -19,8 +19,10 @@ export type RowWithId = EnrichedRow & { _rowId: number }
  * 스냅샷 스키마 버전 — EnrichedRow 의미가 바뀌면 올린다. 다르면 옛 캐시는 조용히 폐기.
  *  2: 2026-06-12 — finalProfit/finalProfitRate 를 product 파일 BB/BC 값으로, 원가총액(cost, BA) 컬럼 추가.
  *     (이전엔 finalProfit=R-Q 계산값이라 그대로 복원하면 잘못된 수치가 정상값처럼 보임 → 무효화.)
+ *  3: 2026-06-12 — 조인 키를 주문번호 → 전표번호로 변경. 다중 라인 주문이 라인별로 분리되고
+ *     추가후정산금이 전표 단위로 재계산되어 옛 스냅샷과 행 의미가 다름 → 무효화.
  */
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 
 export type AnalysisSnapshot = {
   rows: RowWithId[]

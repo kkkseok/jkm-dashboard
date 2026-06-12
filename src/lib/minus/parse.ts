@@ -271,6 +271,66 @@ export function sliceDataRows(allRows: unknown[][], headerRows: number): unknown
 }
 
 /**
+ * 전표번호 base — product/brand 의 전표번호(F)는 라인 접미사 `-001/-002…` 가 붙고,
+ * sales 의 전표번호(AF)는 접미사가 없다. 양쪽을 맞추려고 끝의 `-\d+` 를 제거한다.
+ *   예: "OT202606121088-001" → "OT202606121088", "OT202606121088" → 그대로.
+ */
+export function voucherBase(v: string): string {
+  return v.replace(/-\d+$/, '')
+}
+
+/**
+ * 전표번호(라인 단위) 기준 LEFT JOIN — minus 전용. (2026-06-12)
+ *
+ * 주문번호는 한 주문에 상품이 여러 개면 라인 단위로 유일하지 않아 첫 상품으로 뭉개진다.
+ * 전표번호는 sales 행마다 유일하므로 라인별 정확 매칭이 된다.
+ *  - sales: 전표번호(salesVoucherCol=AF) 있으면 그 base 로 매칭, 없으면 주문번호(salesOrderCol=AE)로 폴백.
+ *  - right(brand/product): 전표번호(rightVoucherCol=F) base 로 색인 + 주문번호(rightOrderCol=E)로도 색인(폴백용).
+ *  - 키별 첫 행 우선(묶음 전표면 -001 대표 행).
+ *
+ * @returns 각 left 행에 대해 right 행 또는 null.
+ */
+export function leftJoinByVoucher(
+  leftRows: unknown[][],
+  rightRows: unknown[][],
+  salesVoucherCol: string,
+  salesOrderCol: string,
+  rightVoucherCol: string,
+  rightOrderCol: string,
+): Array<{ left: unknown[]; right: unknown[] | null }> {
+  const byVoucher = new Map<string, unknown[]>()
+  const byOrder = new Map<string, unknown[]>()
+  const rvc = colToIdx(rightVoucherCol)
+  const roc = colToIdx(rightOrderCol)
+  for (const r of rightRows) {
+    const fv = r[rvc]
+    if (fv != null && fv !== '') {
+      const key = voucherBase(String(fv).trim())
+      if (key !== '' && !byVoucher.has(key)) byVoucher.set(key, r)
+    }
+    const ov = r[roc]
+    if (ov != null && ov !== '') {
+      const key = String(ov).trim()
+      if (key !== '' && !byOrder.has(key)) byOrder.set(key, r)
+    }
+  }
+  const svc = colToIdx(salesVoucherCol)
+  const soc = colToIdx(salesOrderCol)
+  return leftRows.map((l) => {
+    const av = l[svc]
+    if (av != null && av !== '') {
+      const key = voucherBase(String(av).trim())
+      return { left: l, right: key !== '' ? byVoucher.get(key) ?? null : null }
+    }
+    // 전표번호 없음 → 주문번호 폴백 (사용자 확정 B, 2026-06-12)
+    const ov = l[soc]
+    if (ov == null || ov === '') return { left: l, right: null }
+    const key = String(ov).trim()
+    return { left: l, right: key !== '' ? byOrder.get(key) ?? null : null }
+  })
+}
+
+/**
  * LEFT JOIN 패턴 — Map 기반 O(n).
  * 양쪽 키는 String() 으로 정규화. 중복 키는 첫 행 보존 (덮어쓰기 방지).
  *
@@ -311,13 +371,14 @@ export function leftJoin(
 export function groupByKey(
   rows: unknown[][],
   keyCol: string,
+  keyNormalize: (k: string) => string = (k) => k,
 ): Map<string, unknown[][]> {
   const map = new Map<string, unknown[][]>()
   const k = colToIdx(keyCol)
   for (const r of rows) {
     const raw = r[k]
     if (raw == null || raw === '') continue
-    const key = String(raw).trim()
+    const key = keyNormalize(String(raw).trim())
     if (key === '') continue
     const arr = map.get(key)
     if (arr) arr.push(r)

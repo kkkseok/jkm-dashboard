@@ -628,4 +628,114 @@ describe('enrichMinusData', () => {
       expect(r.totalMargin).toBeCloseTo(150, 10)
     })
   })
+
+  describe('전표번호 라인 단위 조인 (2026-06-12)', () => {
+    it('다중 라인 주문: 한 주문에 전표 3개면 각 라인이 자기 상품 — 첫 상품으로 뭉개지지 않는다', async () => {
+      // 실데이터 3456581999 패턴: 주문 ORD-M 에 전표 3개(VCHA/VCHB/VCHC), 각기 다른 상품.
+      const salesRows: unknown[][] = [
+        makeRow({ A: 'h1' }),
+        makeRow({ A: 'h2' }),
+        makeRow({ A: 'A-채널', AE: 'ORD-M', AF: 'VCHA', K: 1000, L: 900, R: 100, Q: 0 }),
+        makeRow({ A: 'A-채널', AE: 'ORD-M', AF: 'VCHB', K: 2000, L: 1800, R: 200, Q: 0 }),
+        makeRow({ A: 'A-채널', AE: 'ORD-M', AF: 'VCHC', K: 3000, L: 2700, R: 300, Q: 0 }),
+      ]
+      // brand/product 의 전표번호(F)는 `-001` 접미사. 같은 주문이지만 전표로 라인 구분.
+      const revenueRows: unknown[][] = [
+        makeRow({ A: 'h1' }),
+        makeRow({ A: 'h2' }),
+        makeRow({ E: 'ORD-M', F: 'VCHA-001', Y: 'P-A', BF: '브랜드A' }),
+        makeRow({ E: 'ORD-M', F: 'VCHB-001', Y: 'P-B', BF: '브랜드B' }),
+        makeRow({ E: 'ORD-M', F: 'VCHC-001', Y: 'P-C', BF: '브랜드C' }),
+      ]
+      const productRows: unknown[][] = [
+        makeRow({ A: 'h1' }),
+        makeRow({ A: 'h2' }),
+        makeRow({ E: 'ORD-M', F: 'VCHA-001', Y: 'P-A', AH: '상품A', AQ: 1, BA: 700, BB: 50, BC: 5.5 }),
+        makeRow({ E: 'ORD-M', F: 'VCHB-001', Y: 'P-B', AH: '상품B', AQ: 1, BA: 1400, BB: 100, BC: 5.6 }),
+        makeRow({ E: 'ORD-M', F: 'VCHC-001', Y: 'P-C', AH: '상품C', AQ: 1, BA: 2100, BB: 150, BC: 5.7 }),
+      ]
+      const { rows } = await enrichMinusData({
+        salesFile: makeWorkbookBuffer(salesRows),
+        revenueFile: makeWorkbookBuffer(revenueRows),
+        productFile: makeWorkbookBuffer(productRows),
+        calAmountMap: new Map(),
+        productMasterMap: new Map(),
+      })
+      expect(rows).toHaveLength(3)
+      // 회귀 방지 핵심: 각 라인이 자기 상품으로 매칭(첫 상품 P-A 로 통일되지 않음)
+      expect(rows.map((r) => r.productCode)).toEqual(['P-A', 'P-B', 'P-C'])
+      expect(rows.map((r) => r.productName)).toEqual(['상품A', '상품B', '상품C'])
+      expect(rows.map((r) => r.brandName)).toEqual(['브랜드A', '브랜드B', '브랜드C'])
+      expect(rows.map((r) => r.cost)).toEqual([700, 1400, 2100])
+      expect(rows.map((r) => r.finalProfit)).toEqual([50, 100, 150])
+      // components 는 전표 단위(각 1개) — 주문 전체(3개)로 뭉치지 않는다.
+      expect(rows.map((r) => r.components.length)).toEqual([1, 1, 1])
+      // onlineOrderNo 는 셋 다 동일(같은 주문) — 표시는 유지된다.
+      expect(rows.map((r) => r.onlineOrderNo)).toEqual(['ORD-M', 'ORD-M', 'ORD-M'])
+    })
+
+    it('진짜 묶음: 한 전표(VCHX)에 product 2행(-001/-002) → 전표 단위로 합산', async () => {
+      const salesRows: unknown[][] = [
+        makeRow({ A: 'h1' }),
+        makeRow({ A: 'h2' }),
+        makeRow({ A: 'A-채널', AE: 'ORD-K', AF: 'VCHX', K: 1000, L: 900, R: 100, Q: 0 }),
+      ]
+      const revenueRows: unknown[][] = [
+        makeRow({ A: 'h1' }),
+        makeRow({ A: 'h2' }),
+        makeRow({ E: 'ORD-K', F: 'VCHX-001', Y: 'P-A', BF: '브랜드A' }),
+        makeRow({ E: 'ORD-K', F: 'VCHX-002', Y: 'P-B', BF: '브랜드A' }),
+      ]
+      const productRows: unknown[][] = [
+        makeRow({ A: 'h1' }),
+        makeRow({ A: 'h2' }),
+        makeRow({ E: 'ORD-K', F: 'VCHX-001', Y: 'P-A', AH: '구성 A', AQ: 1, BA: 700, BB: 50, BC: 5.5 }),
+        makeRow({ E: 'ORD-K', F: 'VCHX-002', Y: 'P-B', AH: '구성 B', AQ: 2, BA: 800, BB: 60, BC: 5.6 }),
+      ]
+      const { rows } = await enrichMinusData({
+        salesFile: makeWorkbookBuffer(salesRows),
+        revenueFile: makeWorkbookBuffer(revenueRows),
+        productFile: makeWorkbookBuffer(productRows),
+        calAmountMap: new Map([['P-A', 10], ['P-B', 100]]),
+        productMasterMap: new Map(),
+      })
+      expect(rows).toHaveLength(1)
+      const r = rows[0]
+      // 전표 단위 합산: 10×1 + 100×2 = 210
+      expect(r.components).toHaveLength(2)
+      expect(r.extraSettlement).toBe(210)
+      // 표시 대표 = 전표의 첫 행(-001)
+      expect(r.productCode).toBe('P-A')
+      expect(r.cost).toBe(700)
+    })
+
+    it('전표번호 없는 sales 행 → 주문번호로 폴백 매칭 (사용자 확정 B)', async () => {
+      const salesRows: unknown[][] = [
+        makeRow({ A: 'h1' }),
+        makeRow({ A: 'h2' }),
+        makeRow({ A: 'A-채널', AE: 'ORD-N', K: 1000, L: 900, R: 100, Q: 0 }), // AF 없음
+      ]
+      const revenueRows: unknown[][] = [
+        makeRow({ A: 'h1' }),
+        makeRow({ A: 'h2' }),
+        makeRow({ E: 'ORD-N', F: 'VCHZ-001', Y: 'P-Z', BF: '브랜드Z' }),
+      ]
+      const productRows: unknown[][] = [
+        makeRow({ A: 'h1' }),
+        makeRow({ A: 'h2' }),
+        makeRow({ E: 'ORD-N', F: 'VCHZ-001', Y: 'P-Z', AH: '상품Z', AQ: 1, BA: 500, BB: 10, BC: 1.1 }),
+      ]
+      const { rows } = await enrichMinusData({
+        salesFile: makeWorkbookBuffer(salesRows),
+        revenueFile: makeWorkbookBuffer(revenueRows),
+        productFile: makeWorkbookBuffer(productRows),
+        calAmountMap: new Map(),
+        productMasterMap: new Map(),
+      })
+      expect(rows).toHaveLength(1)
+      expect(rows[0].productCode).toBe('P-Z')
+      expect(rows[0].productName).toBe('상품Z')
+      expect(rows[0].cost).toBe(500)
+    })
+  })
 })

@@ -6,7 +6,8 @@
  *
  * 흐름:
  *   1. salesFile, revenueFile 각각 파싱 (header:1)
- *   2. excel-mapping/skill.md §5 leftJoin: sales(LEFT) ↔ revenue(RIGHT), key: AE ↔ E
+ *   2. leftJoinByVoucher: sales(LEFT) ↔ revenue(RIGHT), 라인 키 = 전표번호(AF ↔ F base).
+ *      전표 없는 행은 주문번호(AE ↔ E) 폴백. (2026-06-12: 다중 라인 주문 라인별 분리)
  *   3. 각 행에서 letter 기반으로 EnrichedRow 필드 추출
  *   4. productCode 로 calAmountMap.get → extraSettlement (없으면 null)
  *   5. computeProfit({ K, L, R, extraSettlement }) → 5컬럼 계산
@@ -19,11 +20,12 @@ import { applyCommissionClearing, computeProfit } from './calc'
 import { PRODUCT_MAPPING, REVENUE_MAPPING, SALES_MAPPING } from './mapping'
 import {
   groupByKey,
-  leftJoin,
+  leftJoinByVoucher,
   parseWorkbookToRows,
   readNum,
   readStr,
   sliceDataRows,
+  voucherBase,
 } from './parse'
 import { normalizeSalesType } from './sales-type'
 import type { EnrichedRow, PipelineDiagnostics } from './types'
@@ -92,17 +94,22 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
   const productRows = sliceDataRows(productAll, PRODUCT_MAPPING.headerRows)
 
   // 2. LEFT JOIN 두 번 — sales ↔ brand(표시), sales ↔ product(수량)
-  // 두 revenue 파일 모두 매핑 키가 E 라서 같은 키로 두 번 조인한다.
-  const joinedRevenue = leftJoin(
+  // 라인 단위 키 = 전표번호(AF ↔ F base). 한 주문에 상품 여러 개여도 라인별 정확 매칭.
+  // 전표번호 없는 sales 행은 주문번호(AE↔E)로 폴백(사용자 확정 B, 2026-06-12).
+  const joinedRevenue = leftJoinByVoucher(
     salesRows,
     revenueRows,
+    SALES_MAPPING.voucherCol,
     SALES_MAPPING.keyCol,
+    REVENUE_MAPPING.voucherCol,
     REVENUE_MAPPING.keyCol,
   )
-  const joinedProduct = leftJoin(
+  const joinedProduct = leftJoinByVoucher(
     salesRows,
     productRows,
+    SALES_MAPPING.voucherCol,
     SALES_MAPPING.keyCol,
+    PRODUCT_MAPPING.voucherCol,
     PRODUCT_MAPPING.keyCol,
   )
   // 동일한 sales 순서를 기준으로 두 결과를 인덱스로 묶는다.
@@ -112,11 +119,15 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     product: joinedProduct[i]?.right ?? null,
   }))
 
-  // 묶음 상품 대응 (v1.8 2026-06-08): 주문번호별 product 행 그룹.
-  // sales 1행 ↔ product 여러 행(묶음)일 때 추가후정산금을 구성 상품별로 합산하기 위함.
-  // joinedProduct(첫 행)는 표시 대표값(productName/quantity)에만 쓰고,
-  // 합산은 이 그룹의 모든 행을 순회한다.
-  const productGroups = groupByKey(productRows, PRODUCT_MAPPING.keyCol)
+  // 묶음 상품 대응 (v1.8 2026-06-08, v1.10 2026-06-12 전표 단위로 변경):
+  // 진짜 묶음 = 한 전표(F base)에 product 여러 행. 추가후정산금을 구성 상품별로 합산.
+  // 전표 단위 그룹이 기본이고, 전표 없는 행은 주문번호 그룹으로 폴백(B).
+  const productGroupsByVoucher = groupByKey(
+    productRows,
+    PRODUCT_MAPPING.voucherCol,
+    voucherBase,
+  )
+  const productGroupsByOrder = groupByKey(productRows, PRODUCT_MAPPING.keyCol)
 
   // 3~5. 각 행 enrich
   const rows: EnrichedRow[] = []
@@ -131,6 +142,7 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     const salesChannel = normalizeSalesType(salesType)
     const salesDate = readStr(left, SALES_MAPPING.fields.salesDate)
     const onlineOrderNo = readStr(left, SALES_MAPPING.fields.onlineOrderNo)
+    const voucherNo = readStr(left, SALES_MAPPING.voucherCol)
     const K = readNum(left, SALES_MAPPING.fields.K)
     const L = readNum(left, SALES_MAPPING.fields.L)
     const M = readNum(left, SALES_MAPPING.fields.M)
@@ -173,8 +185,13 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     //   - cal_amount 0 등록 + quantity 양수 → extra = 0 (누락 아님)
     //   - 전부 미등록(모든 extra null) → extraSettlement = null (누락 KPI 집계)
     //   - 단품(group 1행)은 기존과 동일 결과.
+    // 전표번호 그룹이 기본(라인 단위). 전표 없는 행만 주문번호 그룹으로 폴백(B).
     const productGroup =
-      onlineOrderNo != null ? productGroups.get(onlineOrderNo) ?? [] : []
+      voucherNo != null
+        ? productGroupsByVoucher.get(voucherBase(voucherNo)) ?? []
+        : onlineOrderNo != null
+          ? productGroupsByOrder.get(onlineOrderNo) ?? []
+          : []
     const components = productGroup.map((prow) => {
       const pc = readStr(prow, PRODUCT_MAPPING.fields.productCode)
       const qty = readNum(prow, PRODUCT_MAPPING.fields.quantity)
