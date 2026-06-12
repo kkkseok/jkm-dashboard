@@ -12,7 +12,7 @@
 import type { EnrichedRow } from './types'
 
 // 최종이익액/최종이익률은 더 이상 계산하지 않는다 (2026-06-12 사용자 확정).
-//   product 파일(revenue_profit_product) 의 BA/BB 값을 파이프라인이 직접 주입한다.
+//   product 파일(revenue_profit_product) 의 BB/BC 값을 파이프라인이 직접 주입한다.
 //   → computeProfit 은 Q(물류비) 를 받지 않으며 ProfitOutput 에 finalProfit 계열도 없다.
 export type ProfitInput = Pick<EnrichedRow, 'K' | 'L' | 'R' | 'extraSettlement'>
 export type ProfitOutput = Pick<
@@ -48,7 +48,7 @@ export function computeProfit(input: ProfitInput): ProfitOutput {
   const totalMarginRate =
     totalMargin != null && L != null && L !== 0 ? totalMargin / L : null
 
-  // 최종이익액/최종이익률은 여기서 계산하지 않는다 — product 파일 BA/BB 를 파이프라인이 주입.
+  // 최종이익액/최종이익률은 여기서 계산하지 않는다 — product 파일 BB/BC 를 파이프라인이 주입.
 
   return {
     commissionRate,

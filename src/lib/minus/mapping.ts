@@ -64,12 +64,14 @@ export const PRODUCT_MAPPING = {
     productCode: 'Y', // 상품코드 — 묶음 추가후정산금 합산의 cal_amount 룩업 키 (2026-06-08)
     productName: 'AH', // 상품명 (v1.7 2026-05-29: brand → product 파일로 이동, 사용자 확정)
     quantity: 'AQ', // 판매세트 수량
-    cost: 'AY', // 원가 금액 — 분석 결과 표시용 (2026-06-12 사용자 확정). 묶음은 대표(첫) 행 값.
+    cost: 'AZ', // 원가 — 분석 결과 표시용 (헤더 "원가", 서식 #,##0). 묶음은 대표(첫) 행 값.
     // 최종이익액/최종이익률 — 계산하지 않고 product 파일 값을 그대로 표시 (2026-06-12 사용자 확정).
     //   기존: calc.ts 가 finalProfit=R-Q, finalProfitRate=finalProfit/L 로 계산.
-    //   변경: product 파일 BA/BB 를 직접 읽어 EnrichedRow 에 주입(파이프라인). 묶음은 대표(첫) 행 값.
-    finalProfit: 'BA', // 최종이익액
-    finalProfitRate: 'BB', // 최종이익률 (Excel %셀이면 raw=비율 0~1)
+    //   변경: product 파일 BB("공급가기준 이익액")/BC("공급가기준 이익율")를 직접 읽어 주입.
+    finalProfit: 'BB', // 최종이익액 (서식 #,##0)
+    // 최종이익률. BC 서식이 #,##0.00"%" 라 raw 값이 이미 퍼센트 수치(예: 17.52 = 17.52%).
+    //   UI percentColumn 이 ×100 하므로 파이프라인에서 /100 해 비율(0~1)로 변환한다.
+    finalProfitRate: 'BC',
   },
 } as const
 

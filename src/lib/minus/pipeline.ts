@@ -147,13 +147,15 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     // 매핑 (revenue_profit_product) — 상품명(v1.7) + 판매세트 수량
     const productName = product ? readStr(product, PRODUCT_MAPPING.fields.productName) : null
     const quantity = product ? readNum(product, PRODUCT_MAPPING.fields.quantity) : null
-    // 원가 금액(AY) — 분석 결과 표시용. 묶음은 대표(첫) 행. product 매칭 실패 시 null.
+    // 원가(AZ) — 분석 결과 표시용. 묶음은 대표(첫) 행. product 매칭 실패 시 null.
     const cost = product ? readNum(product, PRODUCT_MAPPING.fields.cost) : null
 
-    // 최종이익액/최종이익률 — 계산하지 않고 product 파일 BA/BB 를 그대로 표시 (2026-06-12 사용자 확정).
+    // 최종이익액/최종이익률 — 계산하지 않고 product 파일 BB/BC 를 그대로 표시 (2026-06-12 사용자 확정).
     // 묶음(복합)은 대표(첫) 행 값. product 매칭 실패 시 null.
     const finalProfit = product ? readNum(product, PRODUCT_MAPPING.fields.finalProfit) : null
-    const finalProfitRate = product ? readNum(product, PRODUCT_MAPPING.fields.finalProfitRate) : null
+    // BC 서식이 #,##0.00"%" → raw 가 이미 퍼센트 수치(예: 17.52). UI(×100)에 맞춰 /100 로 비율 변환.
+    const finalProfitRateRaw = product ? readNum(product, PRODUCT_MAPPING.fields.finalProfitRate) : null
+    const finalProfitRate = finalProfitRateRaw != null ? finalProfitRateRaw / 100 : null
 
     if (productCode != null) matchedCount++
     else unmatchedJoinCount++

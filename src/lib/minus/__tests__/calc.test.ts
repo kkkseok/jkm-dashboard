@@ -7,7 +7,7 @@ import {
 } from '../calc'
 
 // 최종이익액/최종이익률은 computeProfit 이 더 이상 계산하지 않는다 (2026-06-12 사용자 확정).
-// product 파일(revenue_profit_product) BA/BB 를 파이프라인이 직접 주입하므로
+// product 파일(revenue_profit_product) BB/BC 를 파이프라인이 직접 주입하므로
 // 본 테스트는 수수료/후정산/총마진액/총마진율 4컬럼만 검증한다.
 
 describe('computeProfit — 수수료/후정산/총마진액/총마진율', () => {
