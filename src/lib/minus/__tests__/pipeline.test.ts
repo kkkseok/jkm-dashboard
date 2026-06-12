@@ -140,8 +140,9 @@ describe('enrichMinusData', () => {
     const productRows: unknown[][] = [
       makeRow({ A: 'header1' }),
       makeRow({ A: 'header2' }),
-      makeRow({ E: 'ORD-1', Y: 'P-100', AH: '상품 100', AQ: 3 }),
-      makeRow({ E: 'ORD-2', Y: 'P-200', AH: '상품 200', AQ: 2 }),
+      // AY=원가, BA=최종이익액, BB=최종이익률(비율) — 모두 product 파일 값 그대로 표시
+      makeRow({ E: 'ORD-1', Y: 'P-100', AH: '상품 100', AQ: 3, AY: 700, BA: 250, BB: 0.1752 }),
+      makeRow({ E: 'ORD-2', Y: 'P-200', AH: '상품 200', AQ: 2, AY: 800, BA: -30, BB: -0.05 }),
     ]
 
     const salesBuf = makeWorkbookBuffer(salesRows)
@@ -185,6 +186,10 @@ describe('enrichMinusData', () => {
     // totalMargin = R(100) + settlement(50) + extraSettlement(150) = 300
     expect(rows[0].totalMargin).toBeCloseTo(300, 10)
     expect(rows[0].totalMarginRate).toBeCloseTo(300 / 900, 10)
+    // 원가/최종이익액/최종이익률 — product 파일 AY/BA/BB 값 그대로
+    expect(rows[0].cost).toBe(700)
+    expect(rows[0].finalProfit).toBe(250)
+    expect(rows[0].finalProfitRate).toBeCloseTo(0.1752, 10)
 
     // 행2 — K=0, cal_amount 미등록(P-200 미등록)
     expect(rows[1].onlineOrderNo).toBe('ORD-2')
@@ -195,6 +200,10 @@ describe('enrichMinusData', () => {
     expect(rows[1].settlementAmount).toBeNull()
     expect(rows[1].totalMargin).toBeNull()
     expect(rows[1].totalMarginRate).toBeNull()
+    // 원가/최종이익액/최종이익률은 cal_amount 와 무관 — product 파일 값 그대로(음수 포함)
+    expect(rows[1].cost).toBe(800)
+    expect(rows[1].finalProfit).toBe(-30)
+    expect(rows[1].finalProfitRate).toBeCloseTo(-0.05, 10)
 
     // 행3 — revenue 조인 실패
     expect(rows[2].onlineOrderNo).toBe('ORD-NONE')
@@ -209,6 +218,10 @@ describe('enrichMinusData', () => {
     expect(rows[2].settlementAmount).toBeCloseTo(-25, 10) // 500 * -0.05
     expect(rows[2].totalMargin).toBeCloseTo(-75, 10) // -50 + -25 + 0
     expect(rows[2].totalMarginRate).toBeCloseTo(-75 / 550, 10)
+    // product 조인 실패 → 원가/최종이익액/최종이익률 읽을 행 없음 → null
+    expect(rows[2].cost).toBeNull()
+    expect(rows[2].finalProfit).toBeNull()
+    expect(rows[2].finalProfitRate).toBeNull()
 
     // diagnostics
     expect(diagnostics.totalRows).toBe(3)

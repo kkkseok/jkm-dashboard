@@ -44,6 +44,11 @@ export type EnrichedRow = {
   // product 매칭 실패 시 null.
   quantity: number | null
 
+  // 매핑 from revenue_profit_product — 원가 금액 (AY). (2026-06-12 사용자 확정)
+  // sales 의 M(원가)과 별개 — 분석 결과 표시는 이 product.AY 값을 쓴다.
+  // 묶음은 대표(첫) 행 값. product 매칭 실패 시 null. 표시 위치: 공급가(L)와 이익액(R) 사이.
+  cost: number | null
+
   // 매핑 from product_master (P4 추가) — 단품/복합 구분.
   // null = 매칭 실패 (UI 에 "미매칭" Badge 노출). 02_uiux_products §5-1.
   isComposite: boolean | null
@@ -73,9 +78,9 @@ export type EnrichedRow = {
   settlementAmount: number | null // K * (commissionRate / 2)
   totalMargin: number | null // R + settlementAmount + (extraSettlement ?? 0). Q와 무관.
   totalMarginRate: number | null // totalMargin / L
-  /** 최종이익액 = R - Q (물류비 차감). 사용자 확정 2026-05-24. */
+  /** 최종이익액 — product 파일(revenue_profit_product) BA 값 그대로. 묶음은 대표(첫) 행. (2026-06-12) */
   finalProfit: number | null
-  /** 최종이익률 = finalProfit / L (공급가 기준, S 와 같은 분모). */
+  /** 최종이익률 — product 파일 BB 값 그대로(비율 0~1). 묶음은 대표(첫) 행. (2026-06-12) */
   finalProfitRate: number | null
 }
 

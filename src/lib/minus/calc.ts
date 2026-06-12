@@ -11,19 +11,20 @@
 
 import type { EnrichedRow } from './types'
 
-export type ProfitInput = Pick<EnrichedRow, 'K' | 'L' | 'Q' | 'R' | 'extraSettlement'>
+// 최종이익액/최종이익률은 더 이상 계산하지 않는다 (2026-06-12 사용자 확정).
+//   product 파일(revenue_profit_product) 의 BA/BB 값을 파이프라인이 직접 주입한다.
+//   → computeProfit 은 Q(물류비) 를 받지 않으며 ProfitOutput 에 finalProfit 계열도 없다.
+export type ProfitInput = Pick<EnrichedRow, 'K' | 'L' | 'R' | 'extraSettlement'>
 export type ProfitOutput = Pick<
   EnrichedRow,
   | 'commissionRate'
   | 'settlementAmount'
   | 'totalMargin'
   | 'totalMarginRate'
-  | 'finalProfit'
-  | 'finalProfitRate'
 >
 
 export function computeProfit(input: ProfitInput): ProfitOutput {
-  const { K, L, Q, R, extraSettlement } = input
+  const { K, L, R, extraSettlement } = input
 
   // 1. 수수료 = 1 - (L/K). K=0 또는 K/L null 이면 null.
   const commissionRate =
@@ -47,21 +48,13 @@ export function computeProfit(input: ProfitInput): ProfitOutput {
   const totalMarginRate =
     totalMargin != null && L != null && L !== 0 ? totalMargin / L : null
 
-  // 6. 최종이익액 = R - Q (공급가 기준 이익액에서 물류비 차감). R 또는 Q null 이면 null.
-  //    사용자 확정 2026-05-24. totalMargin 과 독립적 보조 지표.
-  const finalProfit = R != null && Q != null ? R - Q : null
-
-  // 7. 최종이익률 = 최종이익액 / L (공급가 기준 — S 와 같은 분모).
-  const finalProfitRate =
-    finalProfit != null && L != null && L !== 0 ? finalProfit / L : null
+  // 최종이익액/최종이익률은 여기서 계산하지 않는다 — product 파일 BA/BB 를 파이프라인이 주입.
 
   return {
     commissionRate,
     settlementAmount,
     totalMargin,
     totalMarginRate,
-    finalProfit,
-    finalProfitRate,
   }
 }
 
@@ -115,7 +108,8 @@ export type CommissionClearingContext = {
  * 제거 대상이면 수수료·후정산금을 null 로 비우고, 총마진액을 후정산금 항 없이 재계산한다.
  *   총마진액 = R + (추가후정산금 ?? 0)      (후정산금 항 제거)
  *   총마진율 = 총마진액 / L
- * 제거 대상이 아니면 입력 profit 을 그대로 반환. 최종이익액/최종이익률은 항상 불변.
+ * 제거 대상이 아니면 입력 profit 을 그대로 반환.
+ * (최종이익액/최종이익률은 profit 에 없다 — product 파일 값이라 이 후처리와 무관하게 불변.)
  */
 export function applyCommissionClearing(
   profit: ProfitOutput,

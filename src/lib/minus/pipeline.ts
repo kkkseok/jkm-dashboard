@@ -147,6 +147,13 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     // 매핑 (revenue_profit_product) — 상품명(v1.7) + 판매세트 수량
     const productName = product ? readStr(product, PRODUCT_MAPPING.fields.productName) : null
     const quantity = product ? readNum(product, PRODUCT_MAPPING.fields.quantity) : null
+    // 원가 금액(AY) — 분석 결과 표시용. 묶음은 대표(첫) 행. product 매칭 실패 시 null.
+    const cost = product ? readNum(product, PRODUCT_MAPPING.fields.cost) : null
+
+    // 최종이익액/최종이익률 — 계산하지 않고 product 파일 BA/BB 를 그대로 표시 (2026-06-12 사용자 확정).
+    // 묶음(복합)은 대표(첫) 행 값. product 매칭 실패 시 null.
+    const finalProfit = product ? readNum(product, PRODUCT_MAPPING.fields.finalProfit) : null
+    const finalProfitRate = product ? readNum(product, PRODUCT_MAPPING.fields.finalProfitRate) : null
 
     if (productCode != null) matchedCount++
     else unmatchedJoinCount++
@@ -182,8 +189,8 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
         : null
     if (extraSettlement == null) missingExtraCount++
 
-    // 계산 7개 (수수료/후정산/총마진액/총마진율/최종이익액/최종이익률)
-    const profitRaw = computeProfit({ K, L, Q, R, extraSettlement })
+    // 계산 4개 (수수료/후정산/총마진액/총마진율). 최종이익액/최종이익률은 product 파일 값.
+    const profitRaw = computeProfit({ K, L, R, extraSettlement })
 
     // 일부 계산이 null 인 행 카운트 (기존 4개 컬럼 기준 유지 — finalProfit 계열은
     // Q=null 만으로도 null 이 자주 나올 수 있어 별도 카운트 미적용)
@@ -224,10 +231,13 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
       productName,
       brandName,
       quantity,
+      cost,
       isComposite,
       components,
       extraSettlement,
       ...profit,
+      finalProfit,
+      finalProfitRate,
     })
   }
 
