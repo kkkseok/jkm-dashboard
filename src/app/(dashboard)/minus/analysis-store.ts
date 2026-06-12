@@ -22,8 +22,10 @@ export type RowWithId = EnrichedRow & { _rowId: number }
  *  3: 2026-06-12 — 조인 키를 주문번호 → 전표번호로 변경. 다중 라인 주문이 라인별로 분리되고
  *     추가후정산금이 전표 단위로 재계산되어 옛 스냅샷과 행 의미가 다름 → 무효화.
  *  4: 2026-06-12 — 수취인명(recipientName, product P) 컬럼 추가. 옛 스냅샷엔 없으니 재분석 유도.
+ *  5: 2026-06-12 — 원가(cost)를 묶음 전표 구성 상품 BA 합산(총원가)으로 변경 → 행 값이 다름.
+ *  6: 2026-06-12 — 최종이익액(finalProfit)도 묶음 BB 합산, 최종이익률은 총이익액/공급가 재계산.
  */
-const SCHEMA_VERSION = 4
+const SCHEMA_VERSION = 6
 
 export type AnalysisSnapshot = {
   rows: RowWithId[]

@@ -160,15 +160,8 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
     const productName = product ? readStr(product, PRODUCT_MAPPING.fields.productName) : null
     const recipientName = product ? readStr(product, PRODUCT_MAPPING.fields.recipientName) : null
     const quantity = product ? readNum(product, PRODUCT_MAPPING.fields.quantity) : null
-    // 원가총액(BA) — 분석 결과 표시용. 묶음은 대표(첫) 행. product 매칭 실패 시 null.
-    const cost = product ? readNum(product, PRODUCT_MAPPING.fields.cost) : null
-
-    // 최종이익액/최종이익률 — 계산하지 않고 product 파일 BB/BC 를 그대로 표시 (2026-06-12 사용자 확정).
-    // 묶음(복합)은 대표(첫) 행 값. product 매칭 실패 시 null.
-    const finalProfit = product ? readNum(product, PRODUCT_MAPPING.fields.finalProfit) : null
-    // BC 서식이 #,##0.00"%" → raw 가 이미 퍼센트 수치(예: 17.52). UI(×100)에 맞춰 /100 로 비율 변환.
-    const finalProfitRateRaw = product ? readNum(product, PRODUCT_MAPPING.fields.finalProfitRate) : null
-    const finalProfitRate = finalProfitRateRaw != null ? finalProfitRateRaw / 100 : null
+    // 원가총액(cost)·최종이익액(finalProfit)·최종이익률(finalProfitRate) 은
+    // 아래에서 전표 구성 상품 합산/재계산으로 산출한다(2026-06-12 사용자 확정).
 
     if (productCode != null) matchedCount++
     else unmatchedJoinCount++
@@ -202,6 +195,25 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
           : null
       return { productCode: pc, quantity: qty, extra }
     })
+
+    // 원가총액(cost) = 전표 구성 상품들의 BA 합산(=총원가). 단품 전표는 1건이라 그대로.
+    //   sales.M(원가)과 일치함을 데이터로 확인(2026-06-12). product 매칭 실패 시 null.
+    const costParts = productGroup
+      .map((prow) => readNum(prow, PRODUCT_MAPPING.fields.cost))
+      .filter((v): v is number => v != null)
+    const cost = costParts.length > 0 ? costParts.reduce((a, b) => a + b, 0) : null
+
+    // 최종이익액(finalProfit) = 전표 구성 상품들의 BB(이익액) 합산(=총이익액). 단품은 그대로.
+    // 최종이익률(finalProfitRate) = 총이익액 / 공급가(L) 로 재계산 (2026-06-12 사용자 확정).
+    //   - 구성별 BC(이익율)=BB/공급액(AV)×100 이고 Σ공급액(AV)=L 이므로, 단품은 BC/100 과 동일(회귀 없음).
+    //   - 묶음은 ΣBB / L 로 총이익률을 재계산한다. L=0/null 또는 이익액 null 이면 null.
+    const profitParts = productGroup
+      .map((prow) => readNum(prow, PRODUCT_MAPPING.fields.finalProfit))
+      .filter((v): v is number => v != null)
+    const finalProfit =
+      profitParts.length > 0 ? profitParts.reduce((a, b) => a + b, 0) : null
+    const finalProfitRate =
+      finalProfit != null && L != null && L !== 0 ? finalProfit / L : null
     const settledComponents = components.filter((c) => c.extra != null)
     const extraSettlement: number | null =
       settledComponents.length > 0

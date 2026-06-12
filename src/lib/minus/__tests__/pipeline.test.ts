@@ -186,10 +186,10 @@ describe('enrichMinusData', () => {
     // totalMargin = R(100) + settlement(50) + extraSettlement(150) = 300
     expect(rows[0].totalMargin).toBeCloseTo(300, 10)
     expect(rows[0].totalMarginRate).toBeCloseTo(300 / 900, 10)
-    // 원가총액(BA)/최종이익액(BB)/최종이익률(BC) — 이익률은 17.52 → /100 = 0.1752 비율
+    // 원가총액(BA 합산)/최종이익액(BB 합산)/최종이익률(= 총이익액/공급가 L 재계산)
     expect(rows[0].cost).toBe(700)
     expect(rows[0].finalProfit).toBe(250)
-    expect(rows[0].finalProfitRate).toBeCloseTo(0.1752, 10)
+    expect(rows[0].finalProfitRate).toBeCloseTo(250 / 900, 10) // 250/L(900)
 
     // 행2 — K=0, cal_amount 미등록(P-200 미등록)
     expect(rows[1].onlineOrderNo).toBe('ORD-2')
@@ -200,10 +200,10 @@ describe('enrichMinusData', () => {
     expect(rows[1].settlementAmount).toBeNull()
     expect(rows[1].totalMargin).toBeNull()
     expect(rows[1].totalMarginRate).toBeNull()
-    // 원가/최종이익액/최종이익률은 cal_amount 와 무관 — product 파일 값(음수 포함). BC -5 → /100 = -0.05
+    // 원가/최종이익액은 cal_amount 와 무관 — product 값. 최종이익률 = 총이익액/공급가(L) 재계산.
     expect(rows[1].cost).toBe(800)
     expect(rows[1].finalProfit).toBe(-30)
-    expect(rows[1].finalProfitRate).toBeCloseTo(-0.05, 10)
+    expect(rows[1].finalProfitRate).toBeCloseTo(-30 / 900, 10) // -30/L(900)
 
     // 행3 — revenue 조인 실패
     expect(rows[2].onlineOrderNo).toBe('ORD-NONE')
@@ -707,7 +707,12 @@ describe('enrichMinusData', () => {
       expect(r.extraSettlement).toBe(210)
       // 표시 대표 = 전표의 첫 행(-001)
       expect(r.productCode).toBe('P-A')
-      expect(r.cost).toBe(700)
+      // 원가는 구성 상품 합산(총원가): 700 + 800 = 1500
+      expect(r.cost).toBe(1500)
+      // 최종이익액 = 구성 BB 합산: 50 + 60 = 110
+      expect(r.finalProfit).toBe(110)
+      // 최종이익률 = 총이익액 / 공급가(L=900) 재계산
+      expect(r.finalProfitRate).toBeCloseTo(110 / 900, 10)
     })
 
     it('전표번호 없는 sales 행 → 주문번호로 폴백 매칭 (사용자 확정 B)', async () => {

@@ -49,8 +49,8 @@ export type EnrichedRow = {
   quantity: number | null
 
   // 매핑 from revenue_profit_product — 원가총액 (BA, 헤더 "원가총액"). (2026-06-12 사용자 확정)
-  // sales 의 M(원가)과 별개 — 분석 결과 표시는 이 product.BA 값을 쓴다. 반품은 음수.
-  // 묶음은 대표(첫) 행 값. product 매칭 실패 시 null. 표시 위치: 공급가(L)와 이익액(R) 사이.
+  // 묶음(한 전표에 상품 여러 개)이면 구성 상품 BA 를 **합산한 총원가**(=sales.M 과 일치). 반품은 음수.
+  // 단품 전표는 1건이라 그대로. product 매칭 실패 시 null. 표시 위치: 공급가(L)와 이익액(R) 사이.
   cost: number | null
 
   // 매핑 from product_master (P4 추가) — 단품/복합 구분.
@@ -82,9 +82,9 @@ export type EnrichedRow = {
   settlementAmount: number | null // K * (commissionRate / 2)
   totalMargin: number | null // R + settlementAmount + (extraSettlement ?? 0). Q와 무관.
   totalMarginRate: number | null // totalMargin / L
-  /** 최종이익액 — product 파일(revenue_profit_product) BB("공급가기준 이익액") 값 그대로. 묶음은 대표(첫) 행. (2026-06-12) */
+  /** 최종이익액 — product BB("공급가기준 이익액"). 묶음은 전표 구성 상품 합산(총이익액). (2026-06-12) */
   finalProfit: number | null
-  /** 최종이익률 — product 파일 BC("공급가기준 이익율")를 /100 한 비율(0~1). 묶음은 대표(첫) 행. (2026-06-12) */
+  /** 최종이익률 — 총최종이익액 / 공급가(L) 로 재계산한 비율(0~1). 단품은 BC/100 과 동일. (2026-06-12) */
   finalProfitRate: number | null
 }
 
