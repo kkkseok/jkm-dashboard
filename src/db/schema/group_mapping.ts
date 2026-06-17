@@ -70,26 +70,32 @@ export const groupMarketMap = pgTable(
  * 묶음 행의 BG 수식 `(BG{내품행}*{수량}) + …` 에서 추출. ★self_code 분해보다 정확
  * (행 참조라 순서·표기 흔들림 없음, 수량까지 포함).
  *
- *   bundleSelfCode    ← 묶음 자체코드 "★A_B_…"
- *   seq               ← 내품 순번(1-based) = group_upload 의 순번
- *   componentSelfCode ← 내품 자체코드 (BG 수식 참조행의 BA)
- *   quantity          ← 내품 수량 (BG 수식의 ×N)
+ * **키 = 사방넷코드(D), 자체코드(★) 아님.** ★A_B_… 는 구성품만 인코딩하고 수량은
+ * 인코딩하지 않아, 같은 구성·다른 수량의 SKU(파로x3+루피니x3 / x6+x6 / x12+x12)가
+ * 동일한 ★코드를 공유한다. ★코드로 묶음을 역참조하면 첫 변형(x3)으로 수량이 뭉개진다
+ * (2026-06-17 버그). 사방넷코드는 SKU(마스터 행)마다 유일하므로 변형별 수량을 보존한다.
+ * group_market_map 이 마켓코드별 sabangnet_code 를 들고 있어 마켓코드→사방넷코드→내품 조인이 성립.
+ *
+ *   bundleSabangnetCode ← 묶음 행의 사방넷코드 D (SKU 유일 키)
+ *   seq                 ← 내품 순번(1-based) = group_upload 의 순번
+ *   componentSelfCode   ← 내품 자체코드 (BG 수식 참조행의 BA)
+ *   quantity            ← 내품 수량 (BG 수식의 ×N)
  */
 export const groupBundleItem = pgTable(
   'group_bundle_item',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    bundleSelfCode: text('bundle_self_code').notNull(),
+    bundleSabangnetCode: text('bundle_sabangnet_code').notNull(),
     seq: integer('seq').notNull(),
     componentSelfCode: text('component_self_code').notNull(),
     quantity: integer('quantity').notNull(),
   },
   (t) => [
     uniqueIndex('group_bundle_item_bundle_seq_uniq').on(
-      t.bundleSelfCode,
+      t.bundleSabangnetCode,
       t.seq,
     ),
-    index('group_bundle_item_bundle_idx').on(t.bundleSelfCode),
+    index('group_bundle_item_bundle_idx').on(t.bundleSabangnetCode),
   ],
 )
 

@@ -66,6 +66,7 @@ export async function parseProductMasterRaw(
   const marketRows: MarketMapInput[] = []
   const bundleRows: BundleItemInput[] = []
   const seenMarket = new Map<string, number>()
+  // 묶음 dedup 은 사방넷코드(D) 기준. ★자체코드는 수량 변형 SKU 끼리 충돌하므로 키로 못 쓴다.
   const seenBundle = new Set<string>()
   let dupMarketCount = 0
   let bundleCount = 0
@@ -114,12 +115,12 @@ export async function parseProductMasterRaw(
       })
     }
 
-    // 2) 묶음(복합 + ★) → BG 수식 분해
+    // 2) 묶음(복합 + ★) → BG 수식 분해. 키는 SKU 유일한 사방넷코드(D).
     if (
       isComposite &&
       selfCode &&
       selfCode.startsWith(BUNDLE_PREFIX) &&
-      !seenBundle.has(selfCode)
+      !seenBundle.has(sabangnetCode)
     ) {
       const formula = ws[`${bgCol}${ri + 1}`]?.f as string | undefined
       const parts = [...(formula ?? '').matchAll(BUNDLE_FORMULA_RE)].map((m) => ({
@@ -136,7 +137,7 @@ export async function parseProductMasterRaw(
         )
         continue
       }
-      seenBundle.add(selfCode)
+      seenBundle.add(sabangnetCode)
       bundleCount++
       parts.forEach((p, i) => {
         const componentSelfCode = selfCodeAtExcelRow(p.excelRow)
@@ -150,7 +151,7 @@ export async function parseProductMasterRaw(
           return
         }
         bundleRows.push({
-          bundleSelfCode: selfCode,
+          bundleSabangnetCode: sabangnetCode,
           seq: i + 1,
           componentSelfCode,
           quantity: p.qty,

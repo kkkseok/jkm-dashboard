@@ -18,9 +18,9 @@ export type MarketMapInput = {
   quantity: number | null
 }
 
-/** group_bundle_item 한 행 (묶음 내품). */
+/** group_bundle_item 한 행 (묶음 내품). 키는 SKU 유일한 사방넷코드(D). */
 export type BundleItemInput = {
-  bundleSelfCode: string
+  bundleSabangnetCode: string
   seq: number
   componentSelfCode: string
   quantity: number

@@ -50,6 +50,13 @@
       "when": 1781001458899,
       "tag": "0006_volatile_victor_mancha",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781672320372,
+      "tag": "0007_fix_bundle_sabangnet_key",
+      "breakpoints": true
     }
   ]
 }

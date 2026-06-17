@@ -47,10 +47,11 @@ export async function resolveGroupUpload(
     }
   }
 
-  // 2) 마켓코드 벌크 조회
+  // 2) 마켓코드 벌크 조회. sabangnetCode = 마켓코드가 가리키는 SKU(마스터 행) 유일 키.
   const marketRows = await db
     .select({
       marketCode: groupMarketMap.marketCode,
+      sabangnetCode: groupMarketMap.sabangnetCode,
       selfCode: groupMarketMap.selfCode,
       isComposite: groupMarketMap.isComposite,
       quantity: groupMarketMap.quantity,
@@ -59,40 +60,40 @@ export async function resolveGroupUpload(
     .where(inArray(groupMarketMap.marketCode, deduped.map((l) => l.marketCode)))
   const marketByCode = new Map(marketRows.map((m) => [m.marketCode, m]))
 
-  // 3) 복합 자체코드의 내품 벌크 조회 → bundleSelfCode 별 순번 정렬
-  const compositeSelfCodes = [
+  // 3) 복합 SKU 의 내품 벌크 조회 → 사방넷코드별 순번 정렬.
+  //    ★자체코드가 아니라 사방넷코드로 역참조해야 수량 변형(x3/x6/x12)이 보존된다.
+  const compositeSabangnetCodes = [
     ...new Set(
       marketRows
-        .filter((m) => m.isComposite && m.selfCode)
-        .map((m) => m.selfCode as string),
+        .filter((m) => m.isComposite)
+        .map((m) => m.sabangnetCode),
     ),
   ]
-  const bundleBySelf = new Map<string, { seq: number; componentSelfCode: string; quantity: number }[]>()
-  if (compositeSelfCodes.length > 0) {
+  const bundleBySabangnet = new Map<string, { seq: number; componentSelfCode: string; quantity: number }[]>()
+  if (compositeSabangnetCodes.length > 0) {
     const items = await db
       .select({
-        bundleSelfCode: groupBundleItem.bundleSelfCode,
+        bundleSabangnetCode: groupBundleItem.bundleSabangnetCode,
         seq: groupBundleItem.seq,
         componentSelfCode: groupBundleItem.componentSelfCode,
         quantity: groupBundleItem.quantity,
       })
       .from(groupBundleItem)
-      .where(inArray(groupBundleItem.bundleSelfCode, compositeSelfCodes))
+      .where(inArray(groupBundleItem.bundleSabangnetCode, compositeSabangnetCodes))
     for (const it of items) {
-      const arr = bundleBySelf.get(it.bundleSelfCode) ?? []
+      const arr = bundleBySabangnet.get(it.bundleSabangnetCode) ?? []
       arr.push({ seq: it.seq, componentSelfCode: it.componentSelfCode, quantity: it.quantity })
-      bundleBySelf.set(it.bundleSelfCode, arr)
+      bundleBySabangnet.set(it.bundleSabangnetCode, arr)
     }
-    for (const arr of bundleBySelf.values()) arr.sort((a, b) => a.seq - b.seq)
+    for (const arr of bundleBySabangnet.values()) arr.sort((a, b) => a.seq - b.seq)
   }
 
   // 4) 필요한 모든 자체코드(단품 self + 내품 self) erp 벌크 조회
   const neededSelfCodes = new Set<string>()
   for (const m of marketRows) {
-    if (!m.selfCode) continue
     if (m.isComposite) {
-      for (const c of bundleBySelf.get(m.selfCode) ?? []) neededSelfCodes.add(c.componentSelfCode)
-    } else {
+      for (const c of bundleBySabangnet.get(m.sabangnetCode) ?? []) neededSelfCodes.add(c.componentSelfCode)
+    } else if (m.selfCode) {
       neededSelfCodes.add(m.selfCode)
     }
   }
@@ -131,8 +132,8 @@ export async function resolveGroupUpload(
       if (!e) failReason = `단품 ERP 코드 없음 (자체코드 ${m.selfCode})`
       else comps.push({ selfCode: m.selfCode, quantity: m.quantity ?? 1, erpCode: e.erpCode, erpName: e.erpName })
     } else {
-      const items = bundleBySelf.get(m.selfCode) ?? []
-      if (items.length === 0) failReason = `묶음 구성 정보 없음 (자체코드 ${m.selfCode})`
+      const items = bundleBySabangnet.get(m.sabangnetCode) ?? []
+      if (items.length === 0) failReason = `묶음 구성 정보 없음 (사방넷코드 ${m.sabangnetCode}, 자체코드 ${m.selfCode})`
       for (const c of items) {
         const e = erpBySelf.get(c.componentSelfCode)
         if (!e) { failReason = `묶음 내품 ERP 코드 없음 (자체코드 ${c.componentSelfCode})`; break }
