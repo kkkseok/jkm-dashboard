@@ -38,7 +38,10 @@ export function computeProfit(input: ProfitInput): ProfitOutput {
   //    매칭 실패 시 null 이지만, 4번 계산 시에는 (extraSettlement ?? 0) 으로 0 처리.
 
   // 4. 총마진액 = R + 후정산금 + (추가후정산금 ?? 0). R 또는 후정산금 null 이면 null.
-  //    사용자 확정 (2026-05-24): Q(물류비) 는 totalMargin 정의에 포함하지 않는다.
+  //    사용자 확정 (2026-05-24): 수식은 Q(물류비) 항을 별도로 더하지 않는다.
+  //    2026-06-18: 입력 sales 파일이 `sales_status_mod_*` 로 바뀌며 R(이익액) 자체에 물류비가
+  //    차감됨(product BB 와 정렬). → 수식은 불변이나 totalMargin/총마진율은 이제 실질적으로
+  //    물류비를 반영한다(사용자 확정 옵션 A). 절대 R 에 Q 를 더해 '복원'하지 말 것.
   const totalMargin =
     R != null && settlementAmount != null
       ? R + settlementAmount + (extraSettlement ?? 0)

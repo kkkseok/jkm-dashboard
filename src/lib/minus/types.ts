@@ -80,7 +80,7 @@ export type EnrichedRow = {
   // 계산 (7개) - profit-calc 스킬 수식 적용
   commissionRate: number | null // 1 - L/K
   settlementAmount: number | null // K * (commissionRate / 2)
-  totalMargin: number | null // R + settlementAmount + (extraSettlement ?? 0). Q와 무관.
+  totalMargin: number | null // R + settlementAmount + (extraSettlement ?? 0). 수식은 Q 항을 별도로 더하지 않음(단 2026-06-18 mod 파일부터 R 에 물류비 차감 반영 → 총마진율이 실질 물류비 반영).
   totalMarginRate: number | null // totalMargin / L
   /** 최종이익액 — product BB("공급가기준 이익액"). 묶음은 전표 구성 상품 합산(총이익액). (2026-06-12) */
   finalProfit: number | null
