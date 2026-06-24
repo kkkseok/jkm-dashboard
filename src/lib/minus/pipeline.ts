@@ -212,8 +212,19 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
       .filter((v): v is number => v != null)
     const finalProfit =
       profitParts.length > 0 ? profitParts.reduce((a, b) => a + b, 0) : null
-    const finalProfitRate =
-      finalProfit != null && L != null && L !== 0 ? finalProfit / L : null
+    // 최종이익률 = 총이익액 / 공급가(L) 재계산(묶음 정확성). 단 공급가=0/null 이라 재계산이
+    //   불가하면 product 대표행의 이익률(BC, % 수치)을 /100 해 폴백 — 파일값 그대로 표시
+    //   (2026-06-24 사용자 확정, 64df308 이전 동작 복원). 최종이익액이 없으면 폴백도 안 함.
+    let finalProfitRate: number | null = null
+    if (finalProfit != null && L != null && L !== 0) {
+      finalProfitRate = finalProfit / L
+    } else if (finalProfit != null) {
+      const bc =
+        product != null
+          ? readNum(product, PRODUCT_MAPPING.fields.finalProfitRate)
+          : null
+      finalProfitRate = bc != null ? bc / 100 : null
+    }
     const settledComponents = components.filter((c) => c.extra != null)
     const extraSettlement: number | null =
       settledComponents.length > 0
@@ -241,6 +252,7 @@ export async function enrichMinusData(input: PipelineInput): Promise<PipelineRes
       brandName,
       salesChannel,
       isComposite,
+      productCode,
       R,
       L,
       extraSettlement,

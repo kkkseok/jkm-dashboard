@@ -231,6 +231,47 @@ describe('enrichMinusData', () => {
     expect(diagnostics.computeNullCount).toBe(1) // ORD-2 (K=0)
   })
 
+  it('이슈2(2026-06-24): 공급가(L)=0 → 최종이익률은 product BC 폴백, 정상은 ΣBB/L 재계산', async () => {
+    const salesRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      // 행1: 공급가 0, 최종이익액 존재 → BC 폴백 (BC=-100 → -100%)
+      makeRow({ A: 'A-공통엑셀양식(토스)', C: '2026-06-24', K: 41076, L: 0, R: -39788, AE: 'ORD-L0' }),
+      // 행2: 공급가 정상 → 재계산 ΣBB/L (BC 무시)
+      makeRow({ A: 'A-채널', C: '2026-06-24', K: 1000, L: 900, R: 100, AE: 'ORD-OK' }),
+    ]
+    const revenueRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      makeRow({ E: 'ORD-L0', Y: 'P-L0', BF: '브랜드' }),
+      makeRow({ E: 'ORD-OK', Y: 'P-OK', BF: '브랜드' }),
+    ]
+    const productRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      // 공급액(AV)=0 → 원본 BC=-100 센티넬. BB(이익액)=-39788 존재.
+      makeRow({ E: 'ORD-L0', Y: 'P-L0', AH: '상품L0', AQ: 1, BA: 36288, BB: -39788, BC: -100 }),
+      // 정상: BC(17.52)는 무시되고 ΣBB/L = 250/900 로 재계산됨
+      makeRow({ E: 'ORD-OK', Y: 'P-OK', AH: '상품OK', AQ: 1, BA: 700, BB: 250, BC: 17.52 }),
+    ]
+    const { rows } = await enrichMinusData({
+      salesFile: makeWorkbookBuffer(salesRows),
+      revenueFile: makeWorkbookBuffer(revenueRows),
+      productFile: makeWorkbookBuffer(productRows),
+      calAmountMap: new Map(),
+      productMasterMap: new Map(),
+    })
+    const byOrder = Object.fromEntries(rows.map((r) => [r.onlineOrderNo, r]))
+
+    // 공급가 0: 최종이익액은 그대로, 최종이익률은 BC/100 폴백
+    expect(byOrder['ORD-L0'].finalProfit).toBe(-39788)
+    expect(byOrder['ORD-L0'].finalProfitRate).toBeCloseTo(-1, 10) // -100/100
+
+    // 공급가 정상: 재계산 (BC 17.52 가 아니라 250/900)
+    expect(byOrder['ORD-OK'].finalProfit).toBe(250)
+    expect(byOrder['ORD-OK'].finalProfitRate).toBeCloseTo(250 / 900, 10)
+  })
+
   it('빈 파일: rows=[], diagnostics 모두 0', async () => {
     const emptySales = makeWorkbookBuffer([
       makeRow({ A: 'header1' }),
@@ -535,6 +576,49 @@ describe('enrichMinusData', () => {
     expect(byOrder['ORD-X'].commissionRate).toBeNull()
     expect(byOrder['ORD-X'].settlementAmount).toBeNull()
     expect(byOrder['ORD-X'].totalMargin).toBeCloseTo(150, 10)
+  })
+
+  it('이슈1(2026-06-24): 조인 성공 + 브랜드명 빈칸(자사상품) → 수수료/후정산금 제거', async () => {
+    // 메티스/JKM 자체 제습제 패턴: brand 파일에 상품코드(Y)는 있고 브랜드명(BF)만 빈 칸.
+    //   기존 버그: brandName null 을 조인 실패로 오인해 수수료가 남았다.
+    const salesRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      // 매칭됨 + BF 빈칸 → 제거되어야 함
+      makeRow({ A: 'B-공통엑셀양식(뉴띵샵)', C: '2026-06-24', K: 1000, L: 900, R: 100, AE: 'ORD-EMPTY' }),
+      // 진짜 조인 실패(브랜드 행 없음) → 현행 유지
+      makeRow({ A: 'B-공통엑셀양식(뉴띵샵)', C: '2026-06-24', K: 1000, L: 900, R: 100, AE: 'ORD-NOJOIN' }),
+    ]
+    const revenueRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      // 상품코드(Y) 있음, 브랜드명(BF) 비어 있음
+      makeRow({ E: 'ORD-EMPTY', Y: 'G011104720', BF: null }),
+    ]
+    const productRows: unknown[][] = [
+      makeRow({ A: 'h1' }),
+      makeRow({ A: 'h2' }),
+      makeRow({ E: 'ORD-EMPTY', Y: 'G011104720', AH: '메티스 제습제', AQ: 1 }),
+    ]
+    const { rows } = await enrichMinusData({
+      salesFile: makeWorkbookBuffer(salesRows),
+      revenueFile: makeWorkbookBuffer(revenueRows),
+      productFile: makeWorkbookBuffer(productRows),
+      calAmountMap: new Map(),
+      productMasterMap: new Map(),
+    })
+    const byOrder = Object.fromEntries(rows.map((r) => [r.onlineOrderNo, r]))
+
+    // 조인 성공 + 브랜드 빈칸 → 자사상품으로 보고 수수료/후정산금 제거
+    expect(byOrder['ORD-EMPTY'].productCode).toBe('G011104720')
+    expect(byOrder['ORD-EMPTY'].brandName).toBeNull()
+    expect(byOrder['ORD-EMPTY'].commissionRate).toBeNull()
+    expect(byOrder['ORD-EMPTY'].settlementAmount).toBeNull()
+
+    // 진짜 조인 실패 → 현행 유지 (수수료 계산 결과 남음)
+    expect(byOrder['ORD-NOJOIN'].productCode).toBeNull()
+    expect(byOrder['ORD-NOJOIN'].commissionRate).toBeCloseTo(0.1, 10)
+    expect(byOrder['ORD-NOJOIN'].settlementAmount).toBeCloseTo(50, 10)
   })
 
   /**

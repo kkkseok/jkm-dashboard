@@ -93,47 +93,55 @@ describe('computeProfit — 수수료/후정산/총마진액/총마진율', () =
   })
 })
 
-describe('shouldClearCommission — 채널/브랜드 규칙 (사용자 확정 2026-05-29)', () => {
+describe('shouldClearCommission — 채널/브랜드 규칙 (사용자 확정 2026-05-29, 2026-06-24)', () => {
   const CJ = COMMISSION_BRAND
+  // 4번째 인자 matched = revenue 조인 성공 여부(productCode != null).
+  // 브랜드명이 있으면 matched 와 무관하므로 true 를 넘긴다.
 
   it('C) 브랜드명이 있으나 CJ제일제당이 아니면 채널/구분 무관하게 항상 제거', () => {
-    expect(shouldClearCommission('다른브랜드', 'CJ온스타일', true)).toBe(true)
-    expect(shouldClearCommission('다른브랜드', '토스', false)).toBe(true)
-    expect(shouldClearCommission('다른브랜드', '쇼핑엔티', null)).toBe(true)
+    expect(shouldClearCommission('다른브랜드', 'CJ온스타일', true, true)).toBe(true)
+    expect(shouldClearCommission('다른브랜드', '토스', false, true)).toBe(true)
+    expect(shouldClearCommission('다른브랜드', '쇼핑엔티', null, true)).toBe(true)
   })
 
-  it('브랜드 매칭 실패(null) → 현행 유지 (사용자: 매칭 실패는 놔둠)', () => {
-    expect(shouldClearCommission(null, '토스', false)).toBe(false)
-    expect(shouldClearCommission(null, '쇼핑엔티', false)).toBe(false)
-    expect(shouldClearCommission(null, 'CJ온스타일', null)).toBe(false)
-    expect(shouldClearCommission(null, null, null)).toBe(false)
+  it('D) 브랜드명 빈칸 + 조인 성공(matched) → 자사상품(비제일제당)으로 제거 (2026-06-24)', () => {
+    expect(shouldClearCommission(null, '스마트스토어', null, true)).toBe(true)
+    expect(shouldClearCommission(null, '뉴띵샵', false, true)).toBe(true)
+    expect(shouldClearCommission(null, 'B2B', null, true)).toBe(true)
+  })
+
+  it('진짜 조인 실패(브랜드명 빈칸 + matched=false) → 현행 유지 (사용자: 매칭 실패는 놔둠)', () => {
+    expect(shouldClearCommission(null, '토스', false, false)).toBe(false)
+    expect(shouldClearCommission(null, '쇼핑엔티', false, false)).toBe(false)
+    expect(shouldClearCommission(null, 'CJ온스타일', null, false)).toBe(false)
+    expect(shouldClearCommission(null, null, null, false)).toBe(false)
   })
 
   it('A) CJ제일제당 + 토스 → 구분 무관하게 제거', () => {
-    expect(shouldClearCommission(CJ, '토스', false)).toBe(true)
-    expect(shouldClearCommission(CJ, '토스', true)).toBe(true)
-    expect(shouldClearCommission(CJ, '토스', null)).toBe(true)
+    expect(shouldClearCommission(CJ, '토스', false, true)).toBe(true)
+    expect(shouldClearCommission(CJ, '토스', true, true)).toBe(true)
+    expect(shouldClearCommission(CJ, '토스', null, true)).toBe(true)
   })
 
   it('B) CJ제일제당 + 쇼핑엔티/W쇼핑 + 단품(false) → 제거', () => {
-    expect(shouldClearCommission(CJ, '쇼핑엔티', false)).toBe(true)
-    expect(shouldClearCommission(CJ, 'W쇼핑', false)).toBe(true)
+    expect(shouldClearCommission(CJ, '쇼핑엔티', false, true)).toBe(true)
+    expect(shouldClearCommission(CJ, 'W쇼핑', false, true)).toBe(true)
   })
 
   it('B) CJ제일제당 + 쇼핑엔티/W쇼핑 + 복합(true) → 유지', () => {
-    expect(shouldClearCommission(CJ, '쇼핑엔티', true)).toBe(false)
-    expect(shouldClearCommission(CJ, 'W쇼핑', true)).toBe(false)
+    expect(shouldClearCommission(CJ, '쇼핑엔티', true, true)).toBe(false)
+    expect(shouldClearCommission(CJ, 'W쇼핑', true, true)).toBe(false)
   })
 
   it('B) CJ제일제당 + 쇼핑엔티/W쇼핑 + 미매칭(null) → 유지 (사용자: 미매칭 놔둠)', () => {
-    expect(shouldClearCommission(CJ, '쇼핑엔티', null)).toBe(false)
-    expect(shouldClearCommission(CJ, 'W쇼핑', null)).toBe(false)
+    expect(shouldClearCommission(CJ, '쇼핑엔티', null, true)).toBe(false)
+    expect(shouldClearCommission(CJ, 'W쇼핑', null, true)).toBe(false)
   })
 
   it('CJ제일제당 + 그 외 채널 → 유지 (현행)', () => {
-    expect(shouldClearCommission(CJ, 'CJ온스타일', false)).toBe(false)
-    expect(shouldClearCommission(CJ, 'GSshop', null)).toBe(false)
-    expect(shouldClearCommission(CJ, null, true)).toBe(false)
+    expect(shouldClearCommission(CJ, 'CJ온스타일', false, true)).toBe(false)
+    expect(shouldClearCommission(CJ, 'GSshop', null, true)).toBe(false)
+    expect(shouldClearCommission(CJ, null, true, true)).toBe(false)
   })
 })
 
@@ -147,6 +155,7 @@ describe('applyCommissionClearing — 후처리(수수료/후정산금 제거 + 
       brandName: '다른브랜드',
       salesChannel: 'CJ온스타일',
       isComposite: true,
+      productCode: 'P-1',
       R: 100,
       L: 900,
       extraSettlement: 50,
@@ -158,11 +167,42 @@ describe('applyCommissionClearing — 후처리(수수료/후정산금 제거 + 
     expect(out.totalMarginRate).toBeCloseTo(150 / 900, 10)
   })
 
+  it('D) 브랜드명 빈칸 + 조인 성공(productCode 있음) → 제거 (2026-06-24 이슈1)', () => {
+    // 메티스/JKM 자체 제습제: brand 파일에 상품코드(Y)는 있고 브랜드명(BF)만 빈 칸.
+    const out = applyCommissionClearing(baseProfit, {
+      brandName: null,
+      salesChannel: '뉴띵샵',
+      isComposite: null,
+      productCode: 'G011104720',
+      R: 100,
+      L: 900,
+      extraSettlement: 50,
+    })
+    expect(out.commissionRate).toBeNull()
+    expect(out.settlementAmount).toBeNull()
+    expect(out.totalMargin).toBeCloseTo(150, 10)
+  })
+
+  it('진짜 조인 실패(브랜드명·productCode 모두 null) → profit 그대로 유지', () => {
+    const out = applyCommissionClearing(baseProfit, {
+      brandName: null,
+      salesChannel: '토스',
+      isComposite: null,
+      productCode: null,
+      R: 100,
+      L: 900,
+      extraSettlement: 50,
+    })
+    expect(out).toEqual(baseProfit)
+    expect(out.totalMargin).toBeCloseTo(200, 10)
+  })
+
   it('제거 대상 아님(CJ + 일반채널): profit 그대로 반환', () => {
     const out = applyCommissionClearing(baseProfit, {
       brandName: COMMISSION_BRAND,
       salesChannel: 'CJ온스타일',
       isComposite: false,
+      productCode: 'P-1',
       R: 100,
       L: 900,
       extraSettlement: 50,
@@ -176,6 +216,7 @@ describe('applyCommissionClearing — 후처리(수수료/후정산금 제거 + 
       brandName: '다른브랜드',
       salesChannel: '토스',
       isComposite: null,
+      productCode: 'P-1',
       R: 100,
       L: 900,
       extraSettlement: null,
@@ -189,6 +230,7 @@ describe('applyCommissionClearing — 후처리(수수료/후정산금 제거 + 
       brandName: '다른브랜드',
       salesChannel: '토스',
       isComposite: null,
+      productCode: 'P-1',
       R: null,
       L: 900,
       extraSettlement: 50,
@@ -202,6 +244,7 @@ describe('applyCommissionClearing — 후처리(수수료/후정산금 제거 + 
       brandName: '다른브랜드',
       salesChannel: '토스',
       isComposite: null,
+      productCode: 'P-1',
       R: 100,
       L: 0,
       extraSettlement: 50,

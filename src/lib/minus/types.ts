@@ -84,7 +84,10 @@ export type EnrichedRow = {
   totalMarginRate: number | null // totalMargin / L
   /** 최종이익액 — product BB("공급가기준 이익액"). 묶음은 전표 구성 상품 합산(총이익액). (2026-06-12) */
   finalProfit: number | null
-  /** 최종이익률 — 총최종이익액 / 공급가(L) 로 재계산한 비율(0~1). 단품은 BC/100 과 동일. (2026-06-12) */
+  /**
+   * 최종이익률 — 총최종이익액 / 공급가(L) 로 재계산한 비율(0~1). 단품은 BC/100 과 동일. (2026-06-12)
+   * 공급가(L)=0/null 이라 재계산 불가하면 product 대표행의 BC(% 수치)를 /100 해 폴백 (2026-06-24).
+   */
   finalProfitRate: number | null
 }
 

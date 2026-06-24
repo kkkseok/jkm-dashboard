@@ -68,14 +68,18 @@ export function computeProfit(input: ProfitInput): ProfitOutput {
 export const COMMISSION_BRAND = 'CJ-씨제이제일제당(주)'
 
 /**
- * 채널/브랜드별 "수수료 지원"(수수료 + 후정산금) 제거 여부 (사용자 확정 2026-05-29).
+ * 채널/브랜드별 "수수료 지원"(수수료 + 후정산금) 제거 여부 (사용자 확정 2026-05-29, 2026-06-24).
  *
  * 수수료(commissionRate)·후정산금(settlementAmount)을 "-"(null)로 비우는 조건:
  *   A) 브랜드명 = CJ제일제당 AND 매출구분 = 토스
  *   B) 브랜드명 = CJ제일제당 AND 매출구분 ∈ {쇼핑엔티, W쇼핑} AND 단품(isComposite === false)
  *   C) 브랜드명이 있으나 CJ제일제당이 아닌 경우 (전부)
+ *   D) 브랜드명이 비어 있으나 revenue 조인은 성공(matched)한 경우 (= 자사상품, 비제일제당) → 제거
+ *      사용자 확정 2026-06-24: brand 파일에서 메티스/JKM 자체 제습제 등 자사 상품은
+ *      상품코드(Y)는 채워져 있고 브랜드명(BF)만 비어 있다. 제일제당이 아니므로 수수료를 제거한다.
  * 그 외(= CJ제일제당 + A/B 아님)는 유지.
- * - 브랜드 매칭 실패(brandName === null)는 현행 유지 — 사용자 확정 "매칭 실패는 우선 놔둠" (2026-05-29).
+ * - 진짜 조인 실패(matched === false, 상품코드도 없음)는 현행 유지 — 사용자 확정 "매칭 실패는 우선 놔둠".
+ *   (matched 신호 = revenue 조인 성공 = productCode != null. 빈 브랜드명만으로 조인 실패로 오인하지 않는다.)
  * - isComposite === null(미매칭)은 단품이 아니므로 B 미적용 — 사용자 확정 "미매칭은 놔둠".
  *
  * 비교 대상 salesChannel 은 정규화 라벨(sales-type.ts). 사용자 확정 라벨: 토스 / 쇼핑엔티 / W쇼핑.
@@ -84,8 +88,11 @@ export function shouldClearCommission(
   brandName: string | null,
   salesChannel: string | null,
   isComposite: boolean | null,
+  matched: boolean,
 ): boolean {
-  if (brandName == null) return false // 브랜드 매칭 실패 → 현행 유지
+  // 브랜드명이 비어 있으면: 조인 성공(matched)이면 자사상품(비제일제당)으로 보고 제거(D),
+  // 진짜 조인 실패면 현행 유지.
+  if (brandName == null) return matched
   if (brandName !== COMMISSION_BRAND) return true // C
   if (salesChannel === '토스') return true // A
   if (
@@ -101,6 +108,8 @@ export type CommissionClearingContext = {
   brandName: string | null
   salesChannel: string | null
   isComposite: boolean | null
+  /** revenue 조인 성공 여부(= productCode != null). 빈 브랜드명을 조인 실패와 구분하는 데 사용(D). */
+  productCode: string | null
   R: number | null
   L: number | null
   extraSettlement: number | null
@@ -118,7 +127,14 @@ export function applyCommissionClearing(
   profit: ProfitOutput,
   ctx: CommissionClearingContext,
 ): ProfitOutput {
-  if (!shouldClearCommission(ctx.brandName, ctx.salesChannel, ctx.isComposite)) {
+  if (
+    !shouldClearCommission(
+      ctx.brandName,
+      ctx.salesChannel,
+      ctx.isComposite,
+      ctx.productCode != null,
+    )
+  ) {
     return profit
   }
   const totalMargin = ctx.R != null ? ctx.R + (ctx.extraSettlement ?? 0) : null
