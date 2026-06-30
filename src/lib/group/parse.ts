@@ -125,7 +125,8 @@ export async function parseProductMasterRaw(
       const formula = ws[`${bgCol}${ri + 1}`]?.f as string | undefined
       const parts = [...(formula ?? '').matchAll(BUNDLE_FORMULA_RE)].map((m) => ({
         excelRow: Number(m[1]),
-        qty: Number(m[2]),
+        // `*수량` 생략 시 1 — 마스터가 ×1 묶음엔 `*1` 을 안 쓰고 행을 그냥 더한다.
+        qty: m[2] ? Number(m[2]) : 1,
       }))
       if (parts.length === 0) {
         bundleFormulaFailCount++

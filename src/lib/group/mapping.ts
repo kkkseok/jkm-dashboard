@@ -65,7 +65,9 @@ export const SABANGNET_CODE_RE = /^\d{4,}$/
 export const MARKET_CODE_RE = /^[A-Za-z0-9._-]+$/
 
 /**
- * 묶음 BG 수식에서 `(BG{내품행}*{수량})` 추출용.
- * 예: "(BG1385*1)+(BG1394*1)" → [{row:1385, qty:1}, {row:1394, qty:1}]
+ * 묶음 BG 수식에서 `BG{내품행}` (+ 선택적 `*{수량}`) 추출용.
+ * `*수량` 이 없으면 수량 1 — 마스터가 ×1 묶음엔 `*1` 을 생략하고 행을 그냥 더하기 때문
+ * (예: x1 변형 `(BG1450+BG1453)` vs x2 변형 `(BG1450*2)+(BG1453*2)`).
+ * 예: "(BG1385*1)+(BG1394)" → [{row:1385, qty:1}, {row:1394, qty:1}]
  */
-export const BUNDLE_FORMULA_RE = /BG(\d+)\s*\*\s*(\d+)/g
+export const BUNDLE_FORMULA_RE = /BG(\d+)(?:\s*\*\s*(\d+))?/g
