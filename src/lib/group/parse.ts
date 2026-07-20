@@ -4,9 +4,10 @@
  *   - parseProductMasterRaw: product_master.xlsx 원본 → group_market_map + group_bundle_item 입력
  *   - parseProductInfo:      product_info.xlsx        → group_erp_code 입력
  *
- * 묶음 내품 구성·수량은 BA(★A_B) 분해가 아니라 **BG 수식**(`(BG{내품행}*{수량})+…`)에서 뽑는다.
+ * 묶음 내품 구성·수량은 ★자체코드(★A_B) 분해가 아니라 **매입가 수식 컬럼**
+ * (`cols.bundleFormula`, `({수식컬럼}{내품행}*{수량})+…`)에서 뽑는다.
  * 행 참조라 순서·표기 흔들림이 없고 수량까지 정확하다(검증: no_mapping_0609 → group_upload_0609 6/6 재현).
- * BG 수식은 행 배열엔 안 담기므로 워크북 셀(.f)에 직접 접근한다.
+ * 수식은 행 배열엔 안 담기므로 워크북 셀(.f)에 직접 접근한다.
  */
 
 import * as XLSX from 'xlsx'
@@ -17,6 +18,7 @@ import {
   COMPOSITE_LABEL,
   MARKET_CODE_RE,
   PRODUCT_INFO,
+  PRODUCT_MASTER_HEADER_GUARD,
   PRODUCT_MASTER_RAW as PM,
   SABANGNET_CODE_RE,
 } from './mapping'
@@ -48,20 +50,45 @@ export async function parseProductMasterRaw(
   const wb = XLSX.read(buf, { type: 'array', cellDates: true, cellFormula: true })
   const sheetName = wb.SheetNames[0]
   const ws = wb.Sheets[sheetName]
+  // 마스터 시트는 잡서식 탓에 !ref 가 XEJ(1만6천 컬럼)까지 잡혀 있어,
+  // 전체를 펼치면(defval 이 전 컬럼을 채움) 분 단위로 느리다.
+  // 매핑상 가장 오른쪽 컬럼까지만 펼친다 — 그 밖은 어차피 읽지 않는다.
+  const lastColIdx = Math.max(
+    ...Object.values(PM.cols).map(colToIdx),
+    colToIdx(PM.channelRange.last),
+  )
+  const fullRange = XLSX.utils.decode_range(ws['!ref'] ?? 'A1')
   const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, {
     header: 1,
     defval: null,
     raw: true,
+    range: { s: { r: 0, c: 0 }, e: { r: fullRange.e.r, c: lastColIdx } },
   })
 
-  const D = colToIdx(PM.cols.sabangnetCode)
-  const AS = colToIdx(PM.cols.productName)
-  const BA = colToIdx(PM.cols.selfCode)
-  const BD = colToIdx(PM.cols.type)
-  const BH = colToIdx(PM.cols.quantity)
+  const codeIdx = colToIdx(PM.cols.sabangnetCode)
+  const nameIdx = colToIdx(PM.cols.productName)
+  const selfIdx = colToIdx(PM.cols.selfCode)
+  const typeIdx = colToIdx(PM.cols.type)
+  const qtyIdx = colToIdx(PM.cols.quantity)
   const chFirst = colToIdx(PM.channelRange.first)
   const chLast = colToIdx(PM.channelRange.last)
-  const bgCol = PM.cols.bundleFormula
+  const fmlCol = PM.cols.bundleFormula
+
+  // 레이아웃 가드 — 채널/월 컬럼 추가로 letter 가 밀린 다른 버전 파일을 조기 차단.
+  // (구버전 파일을 그대로 파싱하면 상품명 자리에 다른 값이 와서 조용히 빈/엉뚱한 결과가 적재된다)
+  const headerRow = rows[PM.headerRow]
+  const mismatches = PRODUCT_MASTER_HEADER_GUARD.filter(
+    (g) => norm(headerRow?.[colToIdx(g.col)]) !== g.expect,
+  )
+  if (mismatches.length > 0) {
+    const detail = mismatches
+      .map((g) => `${g.col}열="${norm(headerRow?.[colToIdx(g.col)])}"(기대: "${g.expect}")`)
+      .join(', ')
+    throw new Error(
+      `상품 마스터 컬럼 레이아웃이 예상과 다릅니다 — ${detail}. ` +
+        '채널이 추가/삭제돼 컬럼이 밀린 다른 버전 파일인지 확인하세요 (현재 기준: 2026-07 product_master_2607).',
+    )
+  }
 
   const marketRows: MarketMapInput[] = []
   const bundleRows: BundleItemInput[] = []
@@ -73,23 +100,23 @@ export async function parseProductMasterRaw(
   let bundleFormulaFailCount = 0
   const warnings: string[] = []
 
-  /** 엑셀 행 번호(1-based) 의 자체코드(BA) 조회 — BG 수식 참조행 해석용. */
+  /** 엑셀 행 번호(1-based) 의 자체코드 조회 — 매입가 수식 참조행 해석용. */
   const selfCodeAtExcelRow = (excelRow: number): string =>
-    norm(rows[excelRow - 1]?.[BA])
+    norm(rows[excelRow - 1]?.[selfIdx])
 
   for (let ri = PM.dataStart; ri < rows.length; ri++) {
     const row = rows[ri]
     if (!Array.isArray(row)) continue
-    const sabangnetCode = norm(row[D])
+    const sabangnetCode = norm(row[codeIdx])
     if (!SABANGNET_CODE_RE.test(sabangnetCode)) continue // 헤더/잡행 제외
 
-    const productName = norm(row[AS])
+    const productName = norm(row[nameIdx])
     if (productName === '') continue
-    const selfCode = norm(row[BA]) || null
-    const isComposite = norm(row[BD]) === COMPOSITE_LABEL
-    const quantity = parseIntOrNull(row[BH])
+    const selfCode = norm(row[selfIdx]) || null
+    const isComposite = norm(row[typeIdx]) === COMPOSITE_LABEL
+    const quantity = parseIntOrNull(row[qtyIdx])
 
-    // 1) 채널 마켓코드(E~AR) 전부 펼치기 — 마켓코드가 키.
+    // 1) 채널 마켓코드(channelRange 전 범위) 펼치기 — 마켓코드가 키.
     for (let ci = chFirst; ci <= chLast; ci++) {
       const marketCode = norm(row[ci])
       if (marketCode === '') continue
@@ -115,14 +142,14 @@ export async function parseProductMasterRaw(
       })
     }
 
-    // 2) 묶음(복합 + ★) → BG 수식 분해. 키는 SKU 유일한 사방넷코드(D).
+    // 2) 묶음(복합 + ★) → 매입가 수식 분해. 키는 SKU 유일한 사방넷코드(D).
     if (
       isComposite &&
       selfCode &&
       selfCode.startsWith(BUNDLE_PREFIX) &&
       !seenBundle.has(sabangnetCode)
     ) {
-      const formula = ws[`${bgCol}${ri + 1}`]?.f as string | undefined
+      const formula = ws[`${fmlCol}${ri + 1}`]?.f as string | undefined
       const parts = [...(formula ?? '').matchAll(BUNDLE_FORMULA_RE)].map((m) => ({
         excelRow: Number(m[1]),
         // `*수량` 생략 시 1 — 마스터가 ×1 묶음엔 `*1` 을 안 쓰고 행을 그냥 더한다.
@@ -133,7 +160,7 @@ export async function parseProductMasterRaw(
         pushSample(
           warnings,
           '[묶음 수식 해석 실패] ',
-          `${selfCode} — BG 수식이 표준 형태가 아님`,
+          `${selfCode} — 매입가 수식이 표준 형태가 아님`,
           5,
         )
         continue
