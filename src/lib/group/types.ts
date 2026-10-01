@@ -14,7 +14,7 @@ export type MarketMapInput = {
   selfCode: string | null
   productName: string
   isComposite: boolean
-  /** 구성 수량(BH). 빈 값이면 null. */
+  /** 구성 수량(마스터 "구성" 컬럼). 빈 값이면 null. */
   quantity: number | null
 }
 
@@ -33,7 +33,33 @@ export type ErpCodeInput = {
   erpName: string
 }
 
+/**
+ * 상품 마스터에서 헤더 이름으로 자동 탐지한 레이아웃 (parse.ts detectMasterLayout).
+ * 업로드 미리보기에 그대로 보여줘 사용자가 인식 결과를 확인할 수 있게 한다.
+ * 행 번호는 Excel 기준(1-based), 컬럼은 letter.
+ */
+export type ProductMasterLayout = {
+  /** 헤더(채널명) 행. */
+  headerRow: number
+  cols: {
+    sabangnetCode: string
+    productName: string
+    selfCode: string
+    type: string
+    quantity: string
+    /** 묶음 수식이 든 최신 월 매입가 컬럼. */
+    bundleFormula: string
+  }
+  /** 묶음 수식 컬럼의 헤더 원문 (예: "10월 매입가 (vat+)"). */
+  bundleFormulaLabel: string
+  /** 채널 마켓코드 범위 (포함). */
+  channelRange: { first: string; last: string }
+  /** 채널 범위 안의 헤더(채널명) 원문 — 빈 헤더 제외, 중복 제거. */
+  channelNames: string[]
+}
+
 export type ProductMasterParseResult = {
+  layout: ProductMasterLayout
   marketRows: MarketMapInput[]
   bundleRows: BundleItemInput[]
   stats: {
@@ -45,7 +71,7 @@ export type ProductMasterParseResult = {
     bundleCount: number
     /** 묶음 내품 행 총수. */
     bundleItemCount: number
-    /** BG 수식이 표준 형태가 아니라 분해 못한 묶음 수. */
+    /** 매입가 수식이 표준 형태가 아니라 분해 못한 묶음 수. */
     bundleFormulaFailCount: number
   }
   /** 사용자에게 보여줄 경고(중복/실패 샘플 등). */

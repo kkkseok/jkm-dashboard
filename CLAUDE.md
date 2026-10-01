@@ -69,10 +69,10 @@ Supabase Postgres + Drizzle ORM. `.env.local` 에 **연결 문자열 2개**가 �
 1. **`/group-sources` (매핑 소스 적재)** — `product_master.xlsx`(채널별 마켓코드·자체코드·묶음 수식) + `product_info.xlsx`(자체코드→ERPia 코드/상품명)를 파싱해 DB 3테이블에 **"비우고 새로"** 적재. payload 가 커 Server Action body 제한(1MB)을 청크(`CHUNK_SIZE=2000`)로 회피 — `src/lib/group/upload.ts`.
 2. **`/group-upload` (생성)** — `no_mapping.xlsx` 파싱(`gen/parse.ts`) → Server Action `resolveGroupUpload`(`gen/actions.ts`)가 매핑 체인(마켓코드→`group_market_map`→단품 `group_erp_code` / 복합 `group_bundle_item`→`group_erp_code`, 전부 벌크 `IN` 으로 N+1 회피) → 클라이언트에서 `group_upload.xlsx` 빌드/다운로드(`gen/build.ts`). 매핑 실패 행은 출력 제외 + 미매핑 경고 목록(A 정책).
 
-Excel letter 는 두 곳에만 둔다: `src/lib/group/mapping.ts`(소스: `PRODUCT_MASTER_RAW`/`PRODUCT_INFO`), `src/lib/group/gen/mapping.ts`(입출력: `NO_MAPPING`/`OUTPUT_HEADERS`).
+컬럼 정의는 두 곳에만 둔다: `src/lib/group/mapping.ts`(소스: `PRODUCT_MASTER_RAW`/`PRODUCT_INFO`), `src/lib/group/gen/mapping.ts`(입출력: `NO_MAPPING`/`OUTPUT_HEADERS`). **상품 마스터는 letter 가 아니라 헤더 이름으로 자동 탐지**한다(2026-10, `parse.ts` `detectMasterLayout`) — 채널 신설·월 매입가 추가·헤더 행 이동이 잦아서다(2607 트러스테이, 261001 홈앤쇼핑 Q~S·서브원 AW + 헤더 4→5행). 헤더 행 = `사방넷 코드` 가 있는 행, 채널 범위 = `사방넷 코드` 다음 ~ `상품명` 직전, 묶음 수식 = 가장 오른쪽 `NN월 매입가`. 필수 헤더(`사방넷 코드`/`상품명`/`자재코드`/`상품구분`/`구성`/`NN월 매입가`)를 못 찾으면 에러로 차단. 업로드 미리보기에 인식 결과(헤더 행·채널 수·묶음 기준 열)를 표시.
 
 **비즈니스 룰(사용자 확정, 임의 변경 금지):**
-- **묶음(복합) 역참조 키 = 사방넷코드(D), ★자체코드 아님.** ★A_B_… 코드는 구성품만 인코딩하고 **수량은 인코딩하지 않아**, 같은 구성·다른 수량 SKU(x3/x6/x12)가 ★코드를 공유 → ★키로 묶으면 첫 변형으로 수량이 뭉개진다(2026-06-17 버그, `drizzle/0007_fix_bundle_sabangnet_key.sql`). 내품 구성은 마스터 매입가 수식 `(BH{행}*{수량})` 에서 추출 — letter 는 `group/mapping.ts` `cols.bundleFormula` 에서 파생(2026-07 `product_master_2607` 부터 AS 트러스테이 채널 추가로 AS 이후 전 컬럼 +1 이동, 구버전 파일은 파서의 헤더 가드가 차단).
+- **묶음(복합) 역참조 키 = 사방넷코드(D), ★자체코드 아님.** ★A_B_… 코드는 구성품만 인코딩하고 **수량은 인코딩하지 않아**, 같은 구성·다른 수량 SKU(x3/x6/x12)가 ★코드를 공유 → ★키로 묶으면 첫 변형으로 수량이 뭉개진다(2026-06-17 버그, `drizzle/0007_fix_bundle_sabangnet_key.sql`). 내품 구성은 최신 월 매입가 수식 `({열}{행}*{수량})` 에서 추출 — 수식 letter 는 탐지된 묶음 수식 컬럼에서 파생(`bundleFormulaRe`).
 - 그룹상품명(B) 생성 규칙은 `gen/name.ts` `buildGroupName`(단품/묶음 포맷, 묶음 2번째+ 내품의 브랜드 접두 제거). 채널 라벨은 minus 의 `normalizeSalesType` 를 **재사용**한다.
 
 ### 페이지 / 레이아웃

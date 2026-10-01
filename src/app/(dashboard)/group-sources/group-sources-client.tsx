@@ -290,6 +290,15 @@ export function GroupSourcesClient({ status }: { status: GroupSourceStatus }) {
                 마켓코드 중복 {koInt.format(p.stats.dupMarketCount)} · 묶음수식 실패{" "}
                 {koInt.format(p.stats.bundleFormulaFailCount)} (첫 등장/표준수식만 반영)
               </p>
+              <p
+                className="text-xs text-muted-foreground"
+                title={p.layout.channelNames.join(", ")}
+              >
+                인식 · 헤더 {p.layout.headerRow}행 · 채널{" "}
+                {koInt.format(p.layout.channelNames.length)}종(
+                {p.layout.channelRange.first}~{p.layout.channelRange.last}) · 묶음 기준{" "}
+                {p.layout.bundleFormulaLabel} · {p.layout.cols.bundleFormula}열
+              </p>
             </div>
           )}
         />
