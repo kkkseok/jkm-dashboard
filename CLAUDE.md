@@ -24,6 +24,7 @@ pnpm db:migrate          # drizzle-kit migrate (적용)
 pnpm db:studio           # drizzle-kit studio
 ```
 
+- `pnpm tsx scripts/import-cal-amount.ts` — `docs/common/cal_amount.xlsx` → `cal_amount` 일괄 import(**append** 라 재실행 시 중복. 완전 재import 는 먼저 `TRUNCATE TABLE cal_amount RESTART IDENTITY;`). `DATABASE_URL_UNPOOLED` 사용.
 - **Windows 테스트 주의:** vitest 기본 워커 풀이 `VirtualAlloc failed` 로 죽는 경우가 있다. 그럴 땐 `pnpm exec vitest run --pool=forks <파일>` 로 실행.
 - 테스트는 순수 단위 테스트(node env, DB/UI 의존 없음) — `src/**/__tests__/**/*.test.ts`. `@` alias = `src/`.
 
@@ -87,7 +88,7 @@ UI 컴포넌트는 내부적으로 `@base-ui/react` 를 쓴다(Radix 아님). �
 
 ## .claude 하네스 & 설계 문서
 
-- `.claude/skills/` 에 프로젝트 컨벤션이 인코딩돼 있다: `excel-mapping`(파싱/JOIN/letter), `profit-calc`(수식 원본), `supabase-drizzle`(DB), `shadcn-patterns`(UI), `ux-patterns`, `integration-check`, 오케스트레이터 `feature-build`. 해당 작업 시 먼저 참조.
+- `.claude/skills/` 에 프로젝트 컨벤션이 인코딩돼 있다: `excel-mapping`(파싱/JOIN/letter — ※ 단 group 의 상품 마스터는 예외로 **헤더 이름 탐지**, letter 로 되돌리지 말 것), `profit-calc`(수식 원본), `supabase-drizzle`(DB), `shadcn-patterns`(UI), `ux-patterns`, `integration-check`, 오케스트레이터 `feature-build`. 해당 작업 시 먼저 참조.
 - `_workspace/*.md` = 모듈별 설계 문서(요구사항/UIUX/스키마/파이프라인/QA). 구현이 앞서가 문서가 뒤처질 수 있으니 **코드를 우선 신뢰**하고 문서는 의도 파악용으로 본다.
 
 ## 알아둘 점
