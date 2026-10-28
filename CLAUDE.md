@@ -17,6 +17,7 @@ pnpm dev                 # next dev (Turbopack). 3000 점유 시 자동으로 30
 pnpm build               # next build
 pnpm lint                # eslint
 pnpm test                # vitest run (전체)
+pnpm test:watch          # vitest watch 모드
 pnpm test <파일경로>      # 단일 파일
 pnpm exec vitest run -t "테스트명"   # 이름으로 단일 테스트
 pnpm db:generate         # drizzle-kit generate (마이그레이션 SQL 생성)
@@ -25,6 +26,7 @@ pnpm db:studio           # drizzle-kit studio
 ```
 
 - `pnpm tsx scripts/import-cal-amount.ts` — `docs/common/cal_amount.xlsx` → `cal_amount` 일괄 import(**append** 라 재실행 시 중복. 완전 재import 는 먼저 `TRUNCATE TABLE cal_amount RESTART IDENTITY;`). `DATABASE_URL_UNPOOLED` 사용.
+- `pnpm tsx scripts/match/run.ts [--only 자재코드,…] [--full]` — 이미지 대조 배치(수집·공통 이미지 제외·해시 게이트). `DATABASE_URL_UNPOOLED` 사용. 설계 `_workspace/01_design_image_match.md`.
 - **Windows 테스트 주의:** vitest 기본 워커 풀이 `VirtualAlloc failed` 로 죽는 경우가 있다. 그럴 땐 `pnpm exec vitest run --pool=forks <파일>` 로 실행.
 - 테스트는 순수 단위 테스트(node env, DB/UI 의존 없음) — `src/**/__tests__/**/*.test.ts`. `@` alias = `src/`.
 
