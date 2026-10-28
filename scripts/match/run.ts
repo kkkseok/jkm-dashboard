@@ -25,6 +25,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import * as schema from '../../src/db/schema'
 import { matchCheck, matchCommonImage, matchPair, matchRun, matchStatusLog } from '../../src/db/schema'
 import {
+  describePage,
   extractCjDetail,
   extractCjThumb,
   extractGsDescUrl,
@@ -138,11 +139,11 @@ async function collect(
 ): Promise<Collected> {
   const [cjHtml, gsHtml] = await Promise.all([getText(pair.cjUrl), getText(pair.gsUrl)])
   const cjThumbUrl = extractCjThumb(cjHtml)
-  if (!cjThumbUrl) throw new Error('CJ 썸네일(og:image) 없음')
+  if (!cjThumbUrl) throw new Error(`CJ 썸네일(og:image) 없음 — ${describePage(cjHtml)}`)
   const gsThumbUrl = extractGsThumb(gsHtml)
-  if (!gsThumbUrl) throw new Error('GS 썸네일(og:image) 없음')
+  if (!gsThumbUrl) throw new Error(`GS 썸네일(og:image) 없음 — ${describePage(gsHtml)}`)
   const gsDescUrl = extractGsDescUrl(gsHtml)
-  if (!gsDescUrl) throw new Error('GS 상세 iframe 없음')
+  if (!gsDescUrl) throw new Error(`GS 상세 iframe 없음 — ${describePage(gsHtml)}`)
 
   const cjRefs = extractCjDetail(cjHtml)
   const gsRefs = extractGsDetail(await getText(gsDescUrl, pair.gsUrl))
@@ -470,6 +471,12 @@ async function processRun(db: Db, runId: number, pairs: PairRow[], opts: Opts) {
   console.log(
     `  토큰 입력 ${sum.inputTokens} · 출력 ${sum.outputTokens} · 캐시생성 ${sum.cacheCreationTokens} · 캐시읽기 ${sum.cacheReadTokens} · API 환산 $${sum.apiEquivUsd.toFixed(2)}`,
   )
+
+  // 수집이 절반 이상 실패하면 차단·구조 변경 같은 전면 장애 — 실행 자체를 실패로 끝내 Actions 에서 바로 보이게 한다.
+  // (개별 상품 몇 개의 실패는 해당 쌍의 '수집 실패' 상태로만 남긴다.)
+  if (pairs.length > 0 && tally.failed * 2 >= pairs.length) {
+    throw new Error(`수집 실패 ${tally.failed}/${pairs.length} — 사이트 차단 또는 페이지 구조 변경 의심`)
+  }
 }
 
 main().catch((e) => {

@@ -26,6 +26,15 @@ export const GS_THUMB_SIZE = 1000
 const decodeEntities = (s: string): string =>
   s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
 
+/**
+ * 수집 실패 진단용 페이지 요약 — 크기·<title>.
+ * 차단·점검 페이지는 200 으로 와도 og:image 가 없어서, 실패 메시지에 무엇이 왔는지 남긴다.
+ */
+export function describePage(html: string): string {
+  const title = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim().slice(0, 80) ?? '(title 없음)'
+  return `${Math.round(html.length / 1024)}KB · title "${decodeEntities(title)}"`
+}
+
 export function extractOgImage(html: string): string | null {
   const m =
     html.match(/<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i) ??
