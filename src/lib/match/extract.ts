@@ -32,7 +32,9 @@ const decodeEntities = (s: string): string =>
  */
 export function describePage(html: string): string {
   const title = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim().slice(0, 80) ?? '(title 없음)'
-  return `${Math.round(html.length / 1024)}KB · title "${decodeEntities(title)}"`
+  const summary = `${Math.round(html.length / 1024)}KB · title "${decodeEntities(title)}"`
+  // 아주 작은 응답(리다이렉트·봇 검사 페이지 등)은 앞부분을 남겨 원인을 볼 수 있게 한다.
+  return html.length < 5000 ? `${summary} · 본문 ${html.replace(/\s+/g, ' ').slice(0, 600)}` : summary
 }
 
 export function extractOgImage(html: string): string | null {
