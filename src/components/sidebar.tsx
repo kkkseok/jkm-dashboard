@@ -22,8 +22,8 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "마이너스", href: "/minus" },
       { label: "그룹", href: "/group-upload" },
-      { label: "품절", href: "/soldout", disabled: true },
       { label: "이미지 대조", href: "/image-match" },
+      { label: "품절", href: "/soldout", disabled: true },
     ],
   },
   {
