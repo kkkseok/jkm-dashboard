@@ -4,6 +4,10 @@
 # 필요한 Secrets (Settings → Secrets and variables → Actions):
 #   DATABASE_URL_UNPOOLED     Supabase Session Pooler(5432) 연결 문자열
 #   CLAUDE_CODE_OAUTH_TOKEN   로컬에서 `claude setup-token` 으로 발급한 Max 구독 토큰
+#   MATCH_PROXY_KEY           GS 중계 API 키 (Vercel 환경변수 MATCH_PROXY_KEY 와 같은 값)
+#
+# GS샵은 해외 IP(Actions 러너)에 오류 페이지를 준다 → GS 페이지만 Vercel 서울 리전 중계
+# (src/app/api/match/gs-page) 를 거쳐 받는다.
 #
 # 공개 저장소라 실행 로그가 공개된다 — 스크립트는 자재코드·건수·판정 요약만 출력한다.
 # 트리거는 schedule / workflow_dispatch 만 쓴다(포크 PR 에 비밀값이 넘어가지 않게).
@@ -69,6 +73,8 @@ jobs:
           DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_BIN: claude
+          MATCH_GS_PROXY_URL: https://jkm-dashboard.vercel.app/api/match/gs-page
+          MATCH_PROXY_KEY: ${{ secrets.MATCH_PROXY_KEY }}
           ONLY: ${{ inputs.only }}
           FULL: ${{ inputs.full }}
           JUDGE: ${{ inputs.judge }}

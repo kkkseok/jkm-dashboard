@@ -110,7 +110,27 @@ async function request(url: string, referer?: string): Promise<Response> {
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
 }
 
-const getText = async (url: string, referer?: string) => (await request(url, referer)).text()
+/**
+ * GS샵 페이지는 해외 IP 에 오류 페이지를 준다 → MATCH_GS_PROXY_URL 이 있으면 서울 리전 중계
+ * (src/app/api/match/gs-page) 를 거친다. 로컬(국내)에서는 비워 두면 직접 요청.
+ */
+const GS_PROXY = process.env.MATCH_GS_PROXY_URL
+const GS_PAGE_RE = /^https:\/\/www\.gsshop\.com\//
+
+async function getText(url: string, referer?: string): Promise<string> {
+  if (GS_PROXY && GS_PAGE_RE.test(url)) {
+    const q = new URLSearchParams({ url, ...(referer ? { referer } : {}) })
+    const res = await limit(() =>
+      fetch(`${GS_PROXY}?${q}`, {
+        headers: { 'x-match-proxy-key': process.env.MATCH_PROXY_KEY ?? '' },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      }),
+    )
+    if (!res.ok) throw new Error(`GS 중계 HTTP ${res.status} (${res.headers.get('x-proxy-region') ?? '-'})`)
+    return res.text()
+  }
+  return (await request(url, referer)).text()
+}
 const getHash = async (url: string, referer?: string) =>
   sha256(new Uint8Array(await (await request(url, referer)).arrayBuffer()))
 
