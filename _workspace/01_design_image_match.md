@@ -140,6 +140,8 @@ unsure ──사용자 "일치로 확정" / "불일치로 확정"──▶ match
 - 같은 이미지로 1시간 내 재판정하면 캐시 읽기로 처리돼 환산액이 크게 준다(실측 18쌍 $2.02 → $0.18).
 - 결과(18쌍): 불일치 6(207969·208015·213404 썸네일+상세, 206681·210418·221042 상세), 일치 12. 214302(CJ 업사이클 36입 박스 vs GS 24+24)는 두 모델 모두 일치 — 사용자 판정 대기.
 
+- **재판정 병합 (2026-10-28):** 같은 이미지에도 AI 판정이 흔들린다(199909: 썸네일 그대로인데 재판정 시 same→diff). 재판정 결과는 **해시가 바뀐 영역만** 받고, 안 바뀐 영역은 직전 판정을 유지한다(`gate.ts` `mergeVerdict`).
+
 ### 6-1. 토큰 사용량 모니터링 (사용자 요청)
 `claude -p --output-format json` 결과에 호출별 사용량이 들어온다(실측 필드): `usage.input_tokens` / `output_tokens` / `cache_creation_input_tokens` / `cache_read_input_tokens`, `modelUsage.<모델>`, `total_cost_usd`, `duration_ms`, `is_error`.
 - **호출 단위 저장:** `match_check` 에 model, input/output/cache_creation/cache_read 토큰, `api_equiv_usd`, duration_ms.
@@ -167,6 +169,9 @@ unsure ──사용자 "일치로 확정" / "불일치로 확정"──▶ match
 
 - 저장소가 **public** → GitHub Actions 표준 러너 무료 [확인필요: 현재 GitHub 정책]. 단 **Actions 로그가 공개**되므로 로그에 비밀값·DB 내용을 찍지 않는다(건수·자재코드 정도만).
 - GitHub Actions Secrets: `DATABASE_URL_UNPOOLED`, `CLAUDE_CODE_OAUTH_TOKEN`(로컬에서 `claude setup-token` 으로 발급, Max 구독). Vercel 쪽 추가 변수 없음. **public 저장소라 fork PR 워크플로에는 비밀값이 전달되지 않게** 트리거는 `schedule` / `workflow_dispatch` 만 쓴다.
+- **GS샵 해외 IP 차단 (2026-10-28 확인):** Actions 러너(미국)에 GS 는 1KB 오류 페이지("GS SHOP GS이숍의 새이름")를 준다. CJ·GS 이미지 서버(asset.m-gs.kr)·Supabase 는 정상.
+  → GS **페이지 HTML 만** Vercel 서울 함수 `/api/match/gs-page` 로 중계(`MATCH_GS_PROXY_URL`, 키 `MATCH_PROXY_KEY` = Vercel 환경변수·GitHub Secret 동일 값). 허용 URL 은 GS 상품 페이지·상세 iframe 뿐.
+  → 리전은 `vercel.json` `regions: ["icn1"]`(프로젝트 전체 함수). edge + `preferredRegion: 'icn1'` 은 실제 sin1(싱가포르)에서 실행돼 실패. 앱 전체가 DB(ap-northeast-2)와 같은 서울 리전이 됨.
 - 수동 실행: Actions 의 `workflow_dispatch`. (대시보드의 "지금 확인" 버튼은 GitHub 토큰이 필요해 후순위)
 - 참고: Vercel Hobby 는 약관상 비상업 용도 제한 — 이번 기능과 별개로 플랜 확인 필요.
 
