@@ -16,14 +16,17 @@ const ALLOWED = /^https:\/\/www\.gsshop\.com\/(prd\/prd\.gs|mi15\/prd\/prdImgDes
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
 
+/** 실행 리전 — 중계가 실제로 서울(icn1)에서 도는지 진단용. 모든 응답에 붙인다. */
+const regionHeader = () => ({ 'x-proxy-region': process.env.VERCEL_REGION ?? 'unknown' })
+
 export async function GET(request: Request) {
   const key = process.env.MATCH_PROXY_KEY
   if (!key || request.headers.get('x-match-proxy-key') !== key) {
-    return new Response('forbidden', { status: 403 })
+    return new Response('forbidden', { status: 403, headers: regionHeader() })
   }
   const target = new URL(request.url).searchParams.get('url') ?? ''
   if (!ALLOWED.test(target)) {
-    return new Response('url not allowed', { status: 400 })
+    return new Response('url not allowed', { status: 400, headers: regionHeader() })
   }
 
   const referer = new URL(request.url).searchParams.get('referer')
@@ -38,7 +41,7 @@ export async function GET(request: Request) {
     status: res.status,
     headers: {
       'content-type': 'text/html; charset=utf-8',
-      'x-proxy-region': process.env.VERCEL_REGION ?? 'unknown',
+      ...regionHeader(),
     },
   })
 }
