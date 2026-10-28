@@ -32,7 +32,6 @@ const NAV_SECTIONS: NavSection[] = [
       { label: "상품 마스터", href: "/products" },
       { label: "후정산금 관리", href: "/cal-amount" },
       { label: "그룹 매핑 소스", href: "/group-sources" },
-      { label: "이미지 대조 대상", href: "/image-match-sources" },
     ],
   },
 ];

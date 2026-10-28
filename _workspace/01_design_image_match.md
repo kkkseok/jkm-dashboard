@@ -19,7 +19,7 @@
 ## 2. 전체 흐름
 
 ```
-[사용자] 엑셀 업로드 (/image-match-sources)
+[사용자] 엑셀 업로드 (/image-match 의 [대상 엑셀 업로드] 대화창)
      └─▶ match_pair upsert (자재코드 기준)
 
 [GitHub Actions cron, 매일 KST 새벽]  scripts/match/run.ts
@@ -155,9 +155,9 @@ unsure ──사용자 "일치로 확정" / "불일치로 확정"──▶ match
 
 ## 7. 화면
 
-사이드바: 분석 › **이미지 대조**(`/image-match`), 관리 › **이미지 대조 대상**(`/image-match-sources`).
+사이드바: 분석 › **이미지 대조**(`/image-match`) 하나. 업로드는 대시보드의 **[대상 엑셀 업로드]** 대화창(2026-10-28 사용자 요청으로 별도 관리 메뉴 제거, 예전 주소 `/image-match-sources` 는 `/image-match` 로 이동만 한다).
 
-### `/image-match-sources` — 업로드
+### 업로드 대화창 (`image-match/match-upload-dialog.tsx`)
 - 엑셀 클라이언트 파싱(기존 방식). **헤더 이름 탐지**: `자재코드` / `자재명` / `GS` / `본사` (헤더 행·시작 열 위치 무관 — 예시 파일은 B2 시작).
 - **누적 upsert (사용자 확정):** 한 번 등록된 쌍은 이후 업로드 파일에 없어도 그대로 남고 **매 배치마다 계속 확인**한다. 비활성 개념 없음. 제거는 대상 목록에서 명시적으로 삭제할 때만.
 - 미리보기: 신규 / 변경(URL·상품명 바뀜) / 동일 건수와 URL 형식 오류 행.

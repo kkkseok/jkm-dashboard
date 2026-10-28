@@ -58,6 +58,7 @@ import {
   type MatchPairDetail,
   type MatchStatus,
 } from "@/lib/match/types"
+import { MatchUploadDialog } from "./match-upload-dialog"
 import type { EvidenceCrop } from "@/lib/match/evidence"
 import type { Confidence, VerdictDifference } from "@/lib/match/judge-rules"
 
@@ -238,6 +239,9 @@ export function MatchDashboardClient({ data, stale }: Props) {
               .join(" · ") || "조치 필요 없음"}
             {" · "}일치 {koInt.format(data.byStatus.match)}
           </span>
+          <div className="ml-auto">
+            <MatchUploadDialog total={data.rows.length} lastRegisteredAt={data.lastRegisteredAt} />
+          </div>
         </div>
 
         <div className="rounded-lg border">
@@ -263,7 +267,7 @@ export function MatchDashboardClient({ data, stale }: Props) {
                 <TableRow>
                   <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
                     {data.rows.length === 0
-                      ? "등록된 대조 대상이 없습니다. 관리 › 이미지 대조 대상에서 엑셀을 올려 주세요."
+                      ? "등록된 대조 대상이 없습니다. 위의 [대상 엑셀 업로드]로 엑셀을 올려 주세요."
                       : "조건에 맞는 항목이 없습니다."}
                   </TableCell>
                 </TableRow>

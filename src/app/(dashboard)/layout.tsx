@@ -23,7 +23,6 @@ const PAGE_TITLES: Record<string, string> = {
   "/cal-amount": "후정산금 관리",
   "/group-sources": "그룹 매핑 소스",
   "/image-match": "이미지 대조",
-  "/image-match-sources": "이미지 대조 대상",
 };
 
 export default function DashboardLayout({

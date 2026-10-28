@@ -2,12 +2,10 @@
 
 import { db } from '@/db/client'
 import { matchPair, matchStatusLog } from '@/db/schema'
-import { eq, inArray, sql } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { CJ_URL_RE, GS_URL_RE } from './mapping'
 import {
-  MATCH_STATUSES,
   type MatchPairInput,
-  type MatchStatus,
   type MatchUploadDiff,
   type MatchUploadResult,
 } from './types'
@@ -142,32 +140,4 @@ export async function upsertMatchPairs(rows: MatchPairInput[]): Promise<MatchUpl
       unchanged: c.unchanged,
     }
   })
-}
-
-/** 현재 등록 현황 (업로드 화면 상단 표시용). */
-export type MatchSourceStatus = {
-  total: number
-  updatedAt: string | null
-  byStatus: Record<MatchStatus, number>
-}
-
-export async function getMatchSourceStatus(): Promise<MatchSourceStatus> {
-  const rows = await db
-    .select({
-      status: matchPair.status,
-      count: sql<number>`count(*)::int`,
-      updatedAt: sql<string | null>`max(${matchPair.updatedAt})`,
-    })
-    .from(matchPair)
-    .groupBy(matchPair.status)
-
-  const byStatus = Object.fromEntries(MATCH_STATUSES.map((s) => [s, 0])) as Record<MatchStatus, number>
-  let total = 0
-  let updatedAt: string | null = null
-  for (const r of rows) {
-    if ((MATCH_STATUSES as readonly string[]).includes(r.status)) byStatus[r.status as MatchStatus] = r.count
-    total += r.count
-    if (r.updatedAt && (!updatedAt || r.updatedAt > updatedAt)) updatedAt = r.updatedAt
-  }
-  return { total, updatedAt, byStatus }
 }

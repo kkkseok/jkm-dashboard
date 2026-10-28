@@ -79,7 +79,7 @@ Supabase Postgres + Drizzle ORM. `.env.local` 에 **연결 문자열 2개**가 �
 - 그룹상품명(B) 생성 규칙은 `gen/name.ts` `buildGroupName`(단품/묶음 포맷, 묶음 2번째+ 내품의 브랜드 접두 제거). 채널 라벨은 minus 의 `normalizeSalesType` 를 **재사용**한다.
 
 ### 페이지 / 레이아웃
-`src/app/(dashboard)/` route group + 공용 `layout.tsx`(사이드바·헤더). 구현된 페이지: `/minus`(분석), `/group-upload`(그룹 생성)·`/group-sources`(그룹 매핑 소스), `/products`(상품 마스터), `/cal-amount`(후정산금 관리). 테이블은 TanStack Table, 컬럼 표시/숨김·헤더 엑셀식 필터(매출구분/브랜드명/구분)·CSV 내보내기 포함. 사이드바엔 `/soldout`(품절 관리)만 **"예정"(disabled)** 으로 남아 있다 — `src/components/sidebar.tsx` `NAV_SECTIONS` 참조.
+`src/app/(dashboard)/` route group + 공용 `layout.tsx`(사이드바·헤더). 구현된 페이지: `/minus`(분석), `/group-upload`(그룹 생성)·`/group-sources`(그룹 매핑 소스), `/products`(상품 마스터), `/cal-amount`(후정산금 관리), `/image-match`(이미지 대조 — 대상 엑셀 업로드도 이 화면의 대화창에서, 별도 관리 메뉴 없음). 테이블은 TanStack Table, 컬럼 표시/숨김·헤더 엑셀식 필터(매출구분/브랜드명/구분)·CSV 내보내기 포함. 사이드바엔 `/soldout`(품절 관리)만 **"예정"(disabled)** 으로 남아 있다 — `src/components/sidebar.tsx` `NAV_SECTIONS` 참조.
 
 ## shadcn/ui 는 base-ui 기반
 

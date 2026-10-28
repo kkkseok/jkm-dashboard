@@ -18,7 +18,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 /**
  * 엑셀 업로드 카드 — 파일 선택/드롭 → 파싱 미리보기 → DB 적재.
  *
- * group-sources(그룹 매핑 소스)·image-match-sources(이미지 대조 대상)가 공용으로 쓴다.
+ * group-sources(그룹 매핑 소스)·image-match(대조 대상 업로드 대화창)가 공용으로 쓴다.
  * parse 단계에서 Server Action 을 함께 호출해 미리보기에 DB 비교 결과를 담아도 된다.
  */
 

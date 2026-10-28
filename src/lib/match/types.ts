@@ -125,6 +125,8 @@ export type MatchDashboard = {
   lastSuccessAt: string | null
   /** 그 뒤로 지난 시간(시) — DB now() 기준으로 계산(렌더 중 Date.now() 금지). */
   hoursSinceSuccess: number | null
+  /** 마지막으로 대조 대상이 새로 등록된 시각 (업로드 대화창 표시용). */
+  lastRegisteredAt: string | null
   usage: MatchUsageDay[]
 }
 

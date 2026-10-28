@@ -1,17 +1,9 @@
-import { connection } from "next/server"
-import { getMatchSourceStatus } from "@/lib/match/actions"
-import { MatchSourcesClient } from "./match-sources-client"
+import { redirect } from "next/navigation"
 
 /**
- * 이미지 대조 대상 관리 페이지.
- *
- * 자재코드 / 자재명 / GS URL / 본사(CJ더마켓) URL 엑셀을 올려 match_pair 에 누적 upsert 한다.
- * 등록된 쌍은 파일에서 빠져도 남아 매 배치마다 계속 확인된다.
- *
- * connection(): 등록 현황은 업로드·배치로 계속 바뀌므로 빌드 시 정적 생성하지 않고 요청마다 렌더한다.
+ * 예전 "이미지 대조 대상" 관리 페이지 주소.
+ * 업로드는 /image-match 의 [대상 엑셀 업로드] 대화창으로 옮겼다(2026-10-28) — 북마크 대비 이동만 한다.
  */
-export default async function ImageMatchSourcesPage() {
-  await connection()
-  const status = await getMatchSourceStatus()
-  return <MatchSourcesClient status={status} />
+export default function ImageMatchSourcesPage() {
+  redirect("/image-match")
 }

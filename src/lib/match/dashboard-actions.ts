@@ -45,6 +45,7 @@ export async function getMatchDashboard(): Promise<MatchDashboard> {
   }))
   const byStatus = Object.fromEntries(MATCH_STATUSES.map((s) => [s, 0])) as Record<MatchStatus, number>
   for (const r of rows) byStatus[r.status]++
+  const lastRegisteredAt = pairs.reduce<Date | null>((m, p) => (!m || p.createdAt > m ? p.createdAt : m), null)
 
   const [lastRun] = await db.select().from(matchRun).orderBy(desc(matchRun.id)).limit(1)
   const [lastOk] = await db
@@ -90,6 +91,7 @@ export async function getMatchDashboard(): Promise<MatchDashboard> {
       : null,
     lastSuccessAt: iso(lastOk?.finishedAt ?? null),
     hoursSinceSuccess: lastOk ? Number(lastOk.hours) : null,
+    lastRegisteredAt: iso(lastRegisteredAt),
     usage: usage.map((u) => ({
       ...u,
       inputTokens: Number(u.inputTokens),
