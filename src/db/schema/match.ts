@@ -54,6 +54,11 @@ export const matchPair = pgTable(
     lastJudgedAt: timestamp('last_judged_at', { withTimezone: true }),
     /** 사용자가 "처리 완료" 시 남긴 메모. */
     resolvedNote: text('resolved_note'),
+    /**
+     * 확인자가 판정을 직접 정하거나 정정한 시각. 있으면 **판정 규칙 변경만으로는 재판정하지 않는다**
+     * (이미지가 실제로 바뀌면 AI 가 다시 판정하고 이 값을 비운다). 사용자 확정 2026-10-28.
+     */
+    humanDecidedAt: timestamp('human_decided_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

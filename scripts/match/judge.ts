@@ -16,6 +16,7 @@ import { mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import sharp from 'sharp'
+import { segmentsToCrops, type StripPart } from '../../src/lib/match/evidence'
 import {
   JUDGE_SYSTEM_PROMPT,
   VERDICT_SCHEMA,
@@ -83,18 +84,24 @@ const toBlock = (buf: Buffer): ImageBlock => ({
   source: { type: 'base64', media_type: 'image/jpeg', data: buf.toString('base64') },
 })
 
-async function thumbBlock(url: string, referer?: string): Promise<ImageBlock> {
-  const buf = await sharp(await download(url, referer))
+/** 썸네일 블록 + 원본 비율(높이/폭) — 썸네일 차이 근거를 화면에 그릴 때 쓴다. */
+async function thumbBlock(url: string, referer?: string): Promise<{ block: ImageBlock; aspect: number }> {
+  const img = sharp(await download(url, referer))
+  const meta = await img.metadata()
+  const buf = await img
     .flatten({ background: '#fff' })
     .resize(THUMB_MAX, THUMB_MAX, { fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 82 })
     .toBuffer()
-  return toBlock(buf)
+  return { block: toBlock(buf), aspect: meta.width && meta.height ? meta.height / meta.width : 1 }
 }
 
-/** 상세 이미지들을 폭 DETAIL_WIDTH 로 세로로 이어 붙이고 DETAIL_SEGMENT 높이로 자른다. 깨진 이미지는 건너뛴다. */
-async function detailBlocks(urls: string[], referer?: string): Promise<ImageBlock[]> {
-  const parts: { data: Buffer; h: number }[] = []
+/**
+ * 상세 이미지들을 폭 DETAIL_WIDTH 로 세로로 이어 붙이고 DETAIL_SEGMENT 높이로 자른다. 깨진 이미지는 건너뛴다.
+ * parts = 각 원본 이미지가 띠의 어디에 놓였는지 — AI 가 지목한 구간 번호를 원본 위치로 되돌리는 데 쓴다.
+ */
+async function detailBlocks(urls: string[], referer?: string): Promise<{ blocks: ImageBlock[]; parts: StripPart[] }> {
+  const loaded: { url: string; data: Buffer; h: number }[] = []
   for (const url of urls) {
     try {
       const { data, info } = await sharp(await download(url, referer))
@@ -102,37 +109,49 @@ async function detailBlocks(urls: string[], referer?: string): Promise<ImageBloc
         .resize({ width: DETAIL_WIDTH })
         .png()
         .toBuffer({ resolveWithObject: true })
-      parts.push({ data, h: info.height })
+      loaded.push({ url, data, h: info.height })
     } catch {
       // 다운로드·디코드 실패한 이미지는 비교에서 빠진다(해시에는 missing 으로 이미 반영됨).
     }
   }
-  const total = parts.reduce((s, p) => s + p.h, 0)
-  if (total === 0) return []
   let y = 0
+  const parts: StripPart[] = loaded.map((p) => ({ url: p.url, top: (y += p.h) - p.h, height: p.h }))
+  const total = y
+  if (total === 0) return { blocks: [], parts }
   const strip = await sharp({ create: { width: DETAIL_WIDTH, height: total, channels: 3, background: '#fff' } })
-    .composite(parts.map((p) => ({ input: p.data, left: 0, top: (y += p.h) - p.h })))
+    .composite(loaded.map((p, i) => ({ input: p.data, left: 0, top: parts[i].top })))
     .png()
     .toBuffer()
-  const out: ImageBlock[] = []
+  const blocks: ImageBlock[] = []
   for (let top = 0; top < total; top += DETAIL_SEGMENT) {
     const height = Math.min(DETAIL_SEGMENT, total - top)
-    out.push(
+    blocks.push(
       toBlock(
         await sharp(strip).extract({ left: 0, top, width: DETAIL_WIDTH, height }).jpeg({ quality: 80 }).toBuffer(),
       ),
     )
   }
-  return out
+  return { blocks, parts }
 }
 
-async function buildContent(input: JudgeInput): Promise<{ content: (ImageBlock | TextBlock)[]; images: number }> {
-  const [cjThumb, gsThumb, cjDetail, gsDetail] = await Promise.all([
+type Layout = {
+  cjThumbAspect: number
+  gsThumbAspect: number
+  cjParts: StripPart[]
+  gsParts: StripPart[]
+}
+
+async function buildContent(
+  input: JudgeInput,
+): Promise<{ content: (ImageBlock | TextBlock)[]; images: number; layout: Layout }> {
+  const [cjT, gsT, cjD, gsD] = await Promise.all([
     thumbBlock(input.cjThumbUrl),
     thumbBlock(input.gsThumbUrl, input.gsPageUrl),
     detailBlocks(input.cjDetail.map((d) => d.url)),
     detailBlocks(input.gsDetail.map((d) => d.url), input.gsPageUrl),
   ])
+  const [cjThumb, gsThumb, cjDetail, gsDetail] = [cjT.block, gsT.block, cjD.blocks, gsD.blocks]
+  const layout: Layout = { cjThumbAspect: cjT.aspect, gsThumbAspect: gsT.aspect, cjParts: cjD.parts, gsParts: gsD.parts }
   const images = 2 + cjDetail.length + gsDetail.length
   if (images > MAX_IMAGES) throw new Error(`이미지 ${images}장 — 요청 상한 ${MAX_IMAGES} 초과`)
 
@@ -156,7 +175,7 @@ async function buildContent(input: JudgeInput): Promise<{ content: (ImageBlock |
       .filter(Boolean)
       .join('\n'),
   })
-  return { content, images }
+  return { content, images, layout }
 }
 
 /** claude -p 실행 → 마지막 result 메시지. */
@@ -216,17 +235,41 @@ function parseVerdict(result: Record<string, unknown>): Verdict {
   return v
 }
 
+/**
+ * 차이 항목마다 근거 이미지 위치를 붙인다.
+ * 썸네일 차이 → 양쪽 썸네일 전체, 상세 차이 → AI 가 지목한 구간을 원본 이미지 조각으로 변환.
+ */
+function attachEvidence(v: Verdict, input: JudgeInput, layout: Layout): Verdict {
+  const full = (url: string, aspect: number) => [{ url, top: 0, bottom: 1, aspect }]
+  return {
+    ...v,
+    differences: v.differences.map((d) =>
+      d.area === 'thumbnail'
+        ? {
+            ...d,
+            cjEvidence: full(input.cjThumbUrl, layout.cjThumbAspect),
+            gsEvidence: full(input.gsThumbUrl, layout.gsThumbAspect),
+          }
+        : {
+            ...d,
+            cjEvidence: segmentsToCrops(layout.cjParts, d.cjSegments ?? [], DETAIL_SEGMENT, DETAIL_WIDTH),
+            gsEvidence: segmentsToCrops(layout.gsParts, d.gsSegments ?? [], DETAIL_SEGMENT, DETAIL_WIDTH),
+          },
+    ),
+  }
+}
+
 /** 쌍 1개 판정. 실패(한도 초과·형식 오류 등)는 예외 — 호출 측이 다음 실행으로 미룬다. */
 export async function judgePair(input: JudgeInput, model: string): Promise<JudgeResult> {
   const started = Date.now()
-  const { content, images } = await buildContent(input)
+  const { content, images, layout } = await buildContent(input)
   const result = await runClaude(model, content)
   if (result.is_error) throw new Error(`claude 오류: ${String(result.result ?? result.subtype).slice(0, 300)}`)
 
   const usage = (result.usage ?? {}) as Record<string, number>
   const modelUsage = (result.modelUsage ?? {}) as Record<string, unknown>
   return {
-    verdict: parseVerdict(result),
+    verdict: attachEvidence(parseVerdict(result), input, layout),
     images,
     usage: {
       model: Object.keys(modelUsage)[0] ?? model,

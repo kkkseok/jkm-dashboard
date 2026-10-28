@@ -94,6 +94,35 @@ describe('statusAfterVerdict', () => {
     expect(statusAfterVerdict('unfixed', v('same', 'diff'))).toBe('unfixed')
   })
 
+  it('diff 인데 확신 높은 차이가 없으면 판정 보류 (사람 확인)', () => {
+    const low: Verdict = {
+      thumbnail: 'same',
+      detail: 'diff',
+      differences: [
+        { area: 'detail', what: '함량', cj: '94%', gs: '93%', confidence: 'medium' },
+        { area: 'detail', what: '사진', cj: 'a', gs: 'b', confidence: 'low' },
+      ],
+      summary: '',
+    }
+    expect(statusAfterVerdict('new', low)).toBe('unsure')
+    expect(statusAfterVerdict('done', low)).toBe('unsure')
+    const oneHigh = { ...low, differences: [...low.differences, { ...low.differences[0], confidence: 'high' as const }] }
+    expect(statusAfterVerdict('new', oneHigh)).toBe('diff')
+  })
+
+  it('same 영역의 확신 높은 항목은 diff 근거로 치지 않는다', () => {
+    const v: Verdict = {
+      thumbnail: 'same',
+      detail: 'diff',
+      differences: [
+        { area: 'thumbnail', what: '구도', cj: 'a', gs: 'b', confidence: 'high' },
+        { area: 'detail', what: '사진', cj: 'a', gs: 'b', confidence: 'low' },
+      ],
+      summary: '',
+    }
+    expect(statusAfterVerdict('new', v)).toBe('unsure')
+  })
+
   it('diff 없이 unsure 가 있으면 판정 보류', () => {
     expect(statusAfterVerdict('new', v('same', 'unsure'))).toBe('unsure')
   })

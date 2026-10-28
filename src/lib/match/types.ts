@@ -89,6 +89,8 @@ export type MatchDashboardRow = {
   statusChangedAt: string
   lastCheckedAt: string | null
   lastJudgedAt: string | null
+  /** 확인자가 직접 판정·정정한 시각 (있으면 규칙 변경만으로는 재판정 안 함). */
+  humanDecidedAt: string | null
   cjUrl: string
   gsUrl: string
 }

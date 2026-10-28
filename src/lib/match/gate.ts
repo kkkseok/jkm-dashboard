@@ -97,11 +97,19 @@ export function decide(
 
 /**
  * AI 판정 결과 → 다음 상태.
- *   diff 가 하나라도 있으면 불일치(처리 완료 후라면 미반영), 아니면 unsure 가 있으면 판정 보류, 둘 다 same 이면 일치.
+ *   diff 가 있고 그중 확신 높은(high) 차이가 있으면 불일치(처리 완료 후라면 미반영).
+ *   diff 인데 확신 높은 차이가 없으면 판정 보류 — 사람이 근거 이미지를 보고 정한다(사용자 확정 2026-10-28).
+ *   diff 가 없고 unsure 가 있으면 판정 보류, 둘 다 same 이면 일치.
+ * 확신도가 없는 예전 판정·근거 항목이 없는 diff 는 확신 높음으로 본다.
  */
 export function statusAfterVerdict(status: MatchStatus, v: Verdict): MatchStatus {
   const parts = [v.thumbnail, v.detail]
-  if (parts.includes('diff')) return status === 'done' || status === 'unfixed' ? 'unfixed' : 'diff'
+  if (parts.includes('diff')) {
+    const diffItems = v.differences.filter((d) => v[d.area] === 'diff')
+    const confident = diffItems.length === 0 || diffItems.some((d) => (d.confidence ?? 'high') === 'high')
+    if (!confident) return 'unsure'
+    return status === 'done' || status === 'unfixed' ? 'unfixed' : 'diff'
+  }
   if (parts.includes('unsure')) return 'unsure'
   return 'match'
 }

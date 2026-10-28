@@ -39,6 +39,7 @@ export async function getMatchDashboard(): Promise<MatchDashboard> {
     statusChangedAt: iso(p.statusChangedAt)!,
     lastCheckedAt: iso(p.lastCheckedAt),
     lastJudgedAt: iso(p.lastJudgedAt),
+    humanDecidedAt: iso(p.humanDecidedAt),
     cjUrl: p.cjUrl,
     gsUrl: p.gsUrl,
   }))
@@ -143,6 +144,7 @@ export async function getMatchPairDetail(pairId: number): Promise<MatchPairDetai
       statusChangedAt: iso(p.statusChangedAt)!,
       lastCheckedAt: iso(p.lastCheckedAt),
       lastJudgedAt: iso(p.lastJudgedAt),
+      humanDecidedAt: iso(p.humanDecidedAt),
       cjUrl: p.cjUrl,
       gsUrl: p.gsUrl,
       resolvedNote: p.resolvedNote,
@@ -200,10 +202,20 @@ export async function markMatchDone(pairId: number, note: string): Promise<void>
   await transition(pairId, ['diff', 'unfixed'], 'done', memo, { resolvedNote: memo || null })
 }
 
-/** 판정 보류 확정 — 사람이 보고 일치/불일치로 정한다. */
-export async function resolveMatchUnsure(pairId: number, to: 'match' | 'diff', note: string): Promise<void> {
+/**
+ * 확인자 판정 — 판정 보류를 확정하거나, AI 판정(일치/불일치/미반영)을 사람이 정정한다.
+ * humanDecidedAt 을 남겨, 이후 판정 규칙이 바뀌어도 이 쌍은 재판정하지 않는다(이미지가 바뀌면 재판정).
+ */
+export async function decideMatchByHuman(pairId: number, to: 'match' | 'diff', note: string): Promise<void> {
   if (to !== 'match' && to !== 'diff') throw new Error('잘못된 상태입니다.')
-  await transition(pairId, ['unsure'], to, note.trim().slice(0, 500) || '사용자 확정')
+  const memo = note.trim().slice(0, 500)
+  await transition(
+    pairId,
+    ['unsure', 'match', 'diff', 'unfixed', 'done'],
+    to,
+    `확인자 판정: ${to === 'match' ? '같은 상품' : '다름'}${memo ? ` — ${memo}` : ''}`,
+    { humanDecidedAt: new Date() },
+  )
 }
 
 /** 대조 대상 삭제 — 수집·판정·이력도 함께 지워진다(FK cascade). */

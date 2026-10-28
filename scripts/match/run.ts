@@ -374,7 +374,8 @@ async function processRun(db: Db, runId: number, pairs: PairRow[], opts: Opts) {
     if (prevSide && JSON.stringify(prevSide) !== JSON.stringify(current)) tally.changedSincePrev++
 
     const baseline = lastJudged.get(p.id)
-    const rulesChanged = !!baseline && baseline.rulesVersion !== RULES_VERSION
+    // 확인자가 직접 정한 쌍은 규칙 변경만으로는 재판정하지 않는다(이미지가 바뀌면 재판정) — 사용자 확정 2026-10-28.
+    const rulesChanged = !!baseline && baseline.rulesVersion !== RULES_VERSION && !p.humanDecidedAt
     const { decision, changes } = decide(status, toSide(baseline), current, rulesChanged)
     if (decision.kind === 'judge') tally.toJudge++
     else if (decision.kind === 'keep') tally.keep++
@@ -479,7 +480,8 @@ async function processRun(db: Db, runId: number, pairs: PairRow[], opts: Opts) {
         lastCheckedAt: now,
         lastSuccessAt: now,
         updatedAt: now,
-        ...(judge && { lastJudgedAt: now, diffSummary: judge.verdict.summary }),
+        // AI 가 다시 판정했으면(= 이미지 변경 또는 첫 판정) 확인자 판정 표시는 지운다.
+        ...(judge && { lastJudgedAt: now, diffSummary: judge.verdict.summary, humanDecidedAt: null }),
       })
       .where(eq(matchPair.id, p.id))
   }

@@ -5,19 +5,35 @@
  * 바뀐 규칙으로 전체 재판정할 대상을 가려낼 수 있다.
  * 사용자 확정(2026-10-28): 판매 단위(입수·세트·박스/낱개) 차이는 무시, 상품 외관·패키지 변경은 차이.
  *   패키지 리뉴얼(207969)·에디션 패키지(213404)도 차이. 36입 박스 vs 24+24(214302)는 같은 상품.
+ * 2026-10-28.3: 차이마다 확신도·근거 구간 번호를 받는다 — 확신 높은 차이가 없으면 판정 보류(사람 확인),
+ *   근거 구간은 화면에서 해당 이미지 부분을 잘라 보여준다.
  */
 
-export const RULES_VERSION = '2026-10-28.2'
+import type { EvidenceCrop } from './evidence'
+
+export const RULES_VERSION = '2026-10-28.3'
+
+export type Confidence = 'high' | 'medium' | 'low'
+
+export type VerdictDifference = {
+  area: 'thumbnail' | 'detail'
+  what: string
+  cj: string
+  gs: string
+  /** 이 차이에 대한 확신도. 2026-10-28.3 이전 판정에는 없다(없으면 high 로 본다). */
+  confidence?: Confidence
+  /** AI 가 차이를 본 상세 구간 번호(1-based). 썸네일 차이는 빈 배열. */
+  cjSegments?: number[]
+  gsSegments?: number[]
+  /** 배치가 구간 번호를 원본 이미지 위치로 바꿔 붙인 근거 (evidence.ts). */
+  cjEvidence?: EvidenceCrop[]
+  gsEvidence?: EvidenceCrop[]
+}
 
 export type Verdict = {
   thumbnail: 'same' | 'diff' | 'unsure'
   detail: 'same' | 'diff' | 'unsure'
-  differences: {
-    area: 'thumbnail' | 'detail'
-    what: string
-    cj: string
-    gs: string
-  }[]
+  differences: VerdictDifference[]
   summary: string
 }
 
@@ -34,12 +50,15 @@ export const VERDICT_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['area', 'what', 'cj', 'gs'],
+        required: ['area', 'what', 'cj', 'gs', 'confidence', 'cjSegments', 'gsSegments'],
         properties: {
           area: { type: 'string', enum: ['thumbnail', 'detail'] },
           what: { type: 'string' },
           cj: { type: 'string' },
           gs: { type: 'string' },
+          confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+          cjSegments: { type: 'array', items: { type: 'integer' } },
+          gsSegments: { type: 'array', items: { type: 'integer' } },
         },
       },
     },
@@ -76,5 +95,7 @@ export const JUDGE_SYSTEM_PROMPT = `너는 온라인 쇼핑몰 상품 콘텐츠 
 - thumbnail / detail 각각 same | diff | unsure.
 - 글자가 작아 읽을 수 없거나 비교할 부분이 보이지 않으면 추측하지 말고 unsure.
 - differences 에는 diff·unsure 근거를 항목별로 적는다(what=무엇이, cj=원본 상태, gs=GS 상태). same 이면 빈 배열.
+- 각 항목의 confidence: 이미지에서 차이가 분명히 보이면 high, 그럴듯하지만 글자가 작거나 각도 때문에 애매하면 medium, 추정에 가까우면 low.
+- 각 항목의 cjSegments / gsSegments: 상세(area=detail) 차이를 확인한 구간 번호. [CJ 상세 3/8] 이면 3. 해당 쪽에 그 내용이 아예 없으면 가장 가까운 대응 구간을 적는다. 썸네일 차이는 빈 배열.
 - summary 는 한국어 한 줄(60자 이내). 다르면 핵심 차이, 같으면 "일치".
 - 반드시 지정된 JSON 형식으로만 답한다.`

@@ -47,7 +47,7 @@ import {
   deleteMatchPair,
   getMatchPairDetail,
   markMatchDone,
-  resolveMatchUnsure,
+  decideMatchByHuman,
 } from "@/lib/match/dashboard-actions"
 import {
   ACTION_STATUSES,
@@ -58,6 +58,8 @@ import {
   type MatchPairDetail,
   type MatchStatus,
 } from "@/lib/match/types"
+import type { EvidenceCrop } from "@/lib/match/evidence"
+import type { Confidence, VerdictDifference } from "@/lib/match/judge-rules"
 
 const koInt = new Intl.NumberFormat("ko-KR")
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 })
@@ -136,7 +138,16 @@ export function MatchDashboardClient({ data, stale }: Props) {
         accessorKey: "status",
         header: "상태",
         sortingFn: (a, b) => STATUS_ORDER[a.original.status] - STATUS_ORDER[b.original.status],
-        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+        cell: ({ row }) => (
+          <div className="flex items-center gap-1">
+            <StatusBadge status={row.original.status} />
+            {row.original.humanDecidedAt && (
+              <span className="text-xs text-muted-foreground" title="확인자가 직접 정한 판정">
+                (확인자)
+              </span>
+            )}
+          </div>
+        ),
       },
       {
         accessorKey: "diffSummary",
@@ -390,6 +401,64 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 
 const AREA_LABEL = { thumbnail: "썸네일", detail: "상세" } as const
 const VERDICT_LABEL = { same: "일치", diff: "다름", unsure: "판단 보류" } as const
+const CONFIDENCE_LABEL: Record<Confidence, { label: string; className: string }> = {
+  high: { label: "확신 높음", className: "bg-destructive/10 text-destructive" },
+  medium: { label: "확신 보통", className: "bg-warning/15 text-warning" },
+  low: { label: "확신 낮음", className: "bg-muted text-muted-foreground" },
+}
+
+/** 차이 1건 — 설명 + CJ·GS 의 해당 부분 이미지(근거)를 나란히. */
+function DifferenceCard({ d }: { d: VerdictDifference }) {
+  const conf = CONFIDENCE_LABEL[d.confidence ?? "high"]
+  const hasEvidence = (d.cjEvidence?.length ?? 0) + (d.gsEvidence?.length ?? 0) > 0
+  return (
+    <li className="space-y-2 rounded-lg border p-3">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <Badge variant="outline">{AREA_LABEL[d.area]}</Badge>
+        <span className="font-medium">{d.what}</span>
+        {d.confidence && (
+          <Badge variant="outline" className={cn("border-transparent", conf.className)}>
+            {conf.label}
+          </Badge>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        <div>
+          <div className="mb-1 text-muted-foreground">CJ (원본)</div>
+          <p>{d.cj}</p>
+        </div>
+        <div>
+          <div className="mb-1 text-muted-foreground">GS</div>
+          <p>{d.gs}</p>
+        </div>
+      </div>
+      {hasEvidence ? (
+        <div className="grid max-h-[520px] grid-cols-2 gap-3 overflow-y-auto">
+          <div className="space-y-1">{d.cjEvidence?.map((c, i) => <EvidenceImage key={i} crop={c} />)}</div>
+          <div className="space-y-1">{d.gsEvidence?.map((c, i) => <EvidenceImage key={i} crop={c} />)}</div>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">근거 이미지 위치가 없습니다(이전 형식 판정). 아래 전체 이미지에서 확인해 주세요.</p>
+      )}
+    </li>
+  )
+}
+
+/**
+ * 원본 이미지의 top~bottom 구간만 잘라 보여준다(이미지는 저장하지 않음 — 설계 §3).
+ * 높이·위치는 폭 대비 비율이라 padding/margin 의 % (폭 기준)로 맞춘다.
+ */
+function EvidenceImage({ crop }: { crop: EvidenceCrop }) {
+  const heightPct = (crop.bottom - crop.top) * crop.aspect * 100
+  return (
+    <div className="relative w-full overflow-hidden border bg-white" style={{ paddingBottom: `${heightPct}%` }}>
+      <div className="absolute inset-0">
+        {/* eslint-disable-next-line @next/next/no-img-element -- 외부 쇼핑몰 원본 이미지 일부를 그대로 보여준다 */}
+        <img src={crop.url} alt="" loading="lazy" className="block w-full" style={{ marginTop: `-${crop.top * crop.aspect * 100}%` }} />
+      </div>
+    </div>
+  )
+}
 
 function PairSheet({ pairId, onClose }: { pairId: number | null; onClose: () => void }) {
   return (
@@ -444,6 +513,7 @@ function PairSheetBody({ pairId, onClose }: { pairId: number; onClose: () => voi
                 <span className="tabular-nums">{p.matCode}</span>
                 <span>{p.productName}</span>
                 <StatusBadge status={p.status} />
+                {p.humanDecidedAt && <Badge variant="outline">확인자 판정</Badge>}
               </>
             ) : (
               "불러오는 중…"
@@ -485,15 +555,17 @@ function PairSheetBody({ pairId, onClose }: { pairId: number; onClose: () => voi
               </Alert>
             )}
             {p.status === "unsure" && (
-              <section className="space-y-2 rounded-lg border bg-muted/30 p-3">
-                <h3 className="text-sm font-medium">AI 가 판단을 보류했습니다. 직접 보고 정해 주세요.</h3>
+              <section className="space-y-2 rounded-lg border border-warning/40 bg-warning/5 p-3">
+                <h3 className="text-sm font-medium">
+                  AI 가 확신하지 못한 판정입니다. 아래 근거 이미지를 보고 직접 정해 주세요.
+                </h3>
                 <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="메모 (선택)" rows={2} />
                 <div className="flex gap-2">
-                  <Button variant="outline" disabled={pending} onClick={() => run(() => resolveMatchUnsure(p.id, "match", note), "일치로 확정했습니다")}>
-                    일치로 확정
+                  <Button variant="outline" disabled={pending} onClick={() => run(() => decideMatchByHuman(p.id, "match", note), "같은 상품으로 확정했습니다")}>
+                    같은 상품으로 확정
                   </Button>
-                  <Button variant="destructive" disabled={pending} onClick={() => run(() => resolveMatchUnsure(p.id, "diff", note), "불일치로 확정했습니다")}>
-                    불일치로 확정
+                  <Button variant="destructive" disabled={pending} onClick={() => run(() => decideMatchByHuman(p.id, "diff", note), "다름으로 확정했습니다")}>
+                    다름으로 확정
                   </Button>
                 </div>
               </section>
@@ -516,30 +588,34 @@ function PairSheetBody({ pairId, onClose }: { pairId: number; onClose: () => voi
                     <span className="ml-2 text-xs text-muted-foreground">{fmt(detail.judged.judgedAt)}</span>
                   </p>
                   {detail.judged.verdict.differences.length > 0 && (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-16">영역</TableHead>
-                          <TableHead className="w-40">항목</TableHead>
-                          <TableHead>CJ (원본)</TableHead>
-                          <TableHead>GS</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {detail.judged.verdict.differences.map((d, i) => (
-                          <TableRow key={i}>
-                            <TableCell>{AREA_LABEL[d.area]}</TableCell>
-                            <TableCell className="whitespace-normal">{d.what}</TableCell>
-                            <TableCell className="whitespace-normal text-xs">{d.cj}</TableCell>
-                            <TableCell className="whitespace-normal text-xs">{d.gs}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                    <ul className="space-y-3">
+                      {detail.judged.verdict.differences.map((d, i) => (
+                        <DifferenceCard key={i} d={d} />
+                      ))}
+                    </ul>
                   )}
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">아직 판정 전입니다.</p>
+              )}
+              {p.humanDecidedAt && (
+                <p className="text-xs text-muted-foreground">
+                  확인자가 {fmt(p.humanDecidedAt)}에 <b>{MATCH_STATUS_LABEL[p.status]}</b>(으)로 정했습니다. 판정 규칙이 바뀌어도 유지되고, 이미지가 바뀌면 AI 가 다시 판정합니다.
+                </p>
+              )}
+              {(p.status === "match" || p.status === "diff" || p.status === "unfixed") && detail.judged && (
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <span className="text-xs text-muted-foreground">판정이 틀렸나요?</span>
+                  {p.status === "match" ? (
+                    <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => decideMatchByHuman(p.id, "diff", note), "다름으로 정정했습니다")}>
+                      다름으로 정정
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => decideMatchByHuman(p.id, "match", note), "같은 상품으로 정정했습니다")}>
+                      같은 상품으로 정정
+                    </Button>
+                  )}
+                </div>
               )}
             </section>
 

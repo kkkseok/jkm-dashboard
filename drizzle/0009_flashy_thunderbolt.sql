@@ -1,0 +1,1 @@
+ALTER TABLE "match_pair" ADD COLUMN "human_decided_at" timestamp with time zone;
