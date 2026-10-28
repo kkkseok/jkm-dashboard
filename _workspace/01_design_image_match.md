@@ -142,6 +142,9 @@ unsure ──사용자 "일치로 확정" / "불일치로 확정"──▶ match
 
 - **재판정 병합 (2026-10-28):** 같은 이미지에도 AI 판정이 흔들린다(199909: 썸네일 그대로인데 재판정 시 same→diff). 재판정 결과는 **해시가 바뀐 영역만** 받고, 안 바뀐 영역은 직전 판정을 유지한다(`gate.ts` `mergeVerdict`).
 
+- **근거 이미지·확신도·확인자 판정 (규칙 2026-10-28.3):** AI 가 차이마다 확신도와 상세 구간 번호를 답하고, 배치가 원본 이미지 위치로 변환해 verdict 에 붙인다(`evidence.ts`, 이미지 저장 없음). 확신 높은 차이가 없으면 판정 보류. 확인자 확정·정정은 `human_decided_at` 에 기록 — 규칙 변경으로는 재판정하지 않고 이미지가 바뀌면 재판정.
+- **알려진 한계 — 판정 흔들림:** 같은 이미지에도 실행마다 판정이 달라진다(2026-10-28 재판정에서 221042 상세 차이 누락, 208015 썸네일 다름→같음). 대책 후보 "2회 판정 후 불일치 시 판정 보류"(판정 토큰 2배)는 사용자 결정으로 **보류**, 현재는 확인자 정정으로 대응.
+
 ### 6-1. 토큰 사용량 모니터링 (사용자 요청)
 `claude -p --output-format json` 결과에 호출별 사용량이 들어온다(실측 필드): `usage.input_tokens` / `output_tokens` / `cache_creation_input_tokens` / `cache_read_input_tokens`, `modelUsage.<모델>`, `total_cost_usd`, `duration_ms`, `is_error`.
 - **호출 단위 저장:** `match_check` 에 model, input/output/cache_creation/cache_read 토큰, `api_equiv_usd`, duration_ms.
