@@ -4,6 +4,8 @@
  * 엑셀 파싱은 클라이언트에서, DB 반영은 Server Action 에서 한다(기존 모듈과 동일).
  */
 
+import type { Verdict } from './judge-rules'
+
 /** 상태값. 전이 규칙은 _workspace/01_design_image_match.md §5. */
 export const MATCH_STATUSES = [
   'new',
@@ -71,4 +73,86 @@ export type MatchUploadResult = {
   urlChanged: number
   nameChanged: number
   unchanged: number
+}
+
+// ── 대시보드 (/image-match) ─────────────────────────────
+
+/** 조치가 필요한 상태 — 대시보드 기본 필터. */
+export const ACTION_STATUSES: readonly MatchStatus[] = ['diff', 'unfixed', 'unsure', 'error']
+
+export type MatchDashboardRow = {
+  id: number
+  matCode: string
+  productName: string
+  status: MatchStatus
+  diffSummary: string | null
+  statusChangedAt: string
+  lastCheckedAt: string | null
+  lastJudgedAt: string | null
+  cjUrl: string
+  gsUrl: string
+}
+
+export type MatchRunSummary = {
+  id: number
+  startedAt: string
+  finishedAt: string | null
+  total: number
+  fetched: number
+  failed: number
+  judged: number
+  deferred: number
+  error: string | null
+}
+
+/** 일별 판정 토큰 사용량 (KST 기준 날짜). 구독 실행이라 apiEquivUsd 는 청구액이 아닌 API 정가 환산. */
+export type MatchUsageDay = {
+  date: string
+  runs: number
+  judged: number
+  inputTokens: number
+  outputTokens: number
+  apiEquivUsd: number
+}
+
+export type MatchDashboard = {
+  rows: MatchDashboardRow[]
+  byStatus: Record<MatchStatus, number>
+  lastRun: MatchRunSummary | null
+  /** 마지막으로 오류 없이 끝난 배치 종료 시각. */
+  lastSuccessAt: string | null
+  /** 그 뒤로 지난 시간(시) — DB now() 기준으로 계산(렌더 중 Date.now() 금지). */
+  hoursSinceSuccess: number | null
+  usage: MatchUsageDay[]
+}
+
+export type MatchDetailImage = { url: string; desc?: string }
+
+export type MatchPairDetail = {
+  pair: MatchDashboardRow & { resolvedNote: string | null }
+  /** 마지막 정상 수집. 없으면 null(아직 수집 전이거나 계속 실패). */
+  latest: {
+    checkedAt: string
+    cjThumbUrl: string | null
+    gsThumbUrl: string | null
+    cjDetail: MatchDetailImage[]
+    /** GS 공통 공지 이미지는 제외한 목록. */
+    gsDetail: MatchDetailImage[]
+    gsCommonCount: number
+  } | null
+  /** 마지막 AI 판정. */
+  judged: {
+    judgedAt: string
+    model: string | null
+    verdict: Verdict
+  } | null
+  /** 가장 최근 수집 실패 메시지 (마지막 수집이 실패일 때만). */
+  lastError: string | null
+  logs: {
+    at: string
+    from: MatchStatus | null
+    to: MatchStatus
+    actor: string
+    note: string | null
+  }[]
 }
