@@ -101,3 +101,37 @@ export function statusAfterVerdict(status: MatchStatus, v: Verdict): MatchStatus
   if (parts.includes('unsure')) return 'unsure'
   return 'match'
 }
+
+const AREA_LABEL = { thumbnail: '썸네일', detail: '상세' } as const
+
+/**
+ * 재판정 결과 병합 — **해시가 바뀐 영역의 판정만 새 결과로 받는다.**
+ *
+ * 같은 이미지에도 AI 판정은 흔들릴 수 있다(2026-10-28 실측: 199909 썸네일은 그대로인데
+ * GS 상세 공지 이미지 교체로 재판정되자 썸네일 판정이 same → diff 로 뒤집힘).
+ * 바뀌지 않은 영역은 직전 판정(근거 포함)을 유지해 엉뚱한 알림을 막는다.
+ *
+ * @param prev    기준(마지막 판정) verdict. 없으면 next 그대로.
+ * @param changes 기준 대비 해시 변경. null(첫 판정)이면 next 그대로.
+ */
+export function mergeVerdict(prev: Verdict | null, next: Verdict, changes: HashChanges | null): Verdict {
+  if (!prev || !changes) return next
+  const thumbChanged = changes.cjThumb || changes.gsThumb
+  const detailChanged = changes.cjDetail || changes.gsDetail
+  if (thumbChanged && detailChanged) return next
+
+  const t = thumbChanged ? next : prev
+  const d = detailChanged ? next : prev
+  const differences = [
+    ...t.differences.filter((x) => x.area === 'thumbnail'),
+    ...d.differences.filter((x) => x.area === 'detail'),
+  ]
+  const summary =
+    differences.length === 0
+      ? '일치'
+      : differences
+          .map((x) => `${AREA_LABEL[x.area]}: ${x.what}`)
+          .join(' / ')
+          .slice(0, 80)
+  return { thumbnail: t.thumbnail, detail: d.detail, differences, summary }
+}

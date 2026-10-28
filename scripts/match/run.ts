@@ -38,11 +38,13 @@ import {
   decide,
   findCommonHashes,
   sha256,
+  mergeVerdict,
   statusAfterVerdict,
   type GateDecision,
+  type HashChanges,
   type SideHashes,
 } from '../../src/lib/match/gate'
-import { RULES_VERSION } from '../../src/lib/match/judge-rules'
+import { RULES_VERSION, type Verdict } from '../../src/lib/match/judge-rules'
 import { judgePair, type JudgeResult } from './judge'
 import { MATCH_STATUSES, type MatchStatus } from '../../src/lib/match/types'
 
@@ -319,6 +321,9 @@ async function processRun(db: Db, runId: number, pairs: PairRow[], opts: Opts) {
     gsDetail: DetailImage[]
     current: SideHashes
     decision: GateDecision
+    /** 기준(마지막 판정) 대비 해시 변경 — 재판정 시 바뀐 영역만 새 판정을 받는 데 쓴다. */
+    changes: HashChanges | null
+    prevVerdict: Verdict | null
     judge?: JudgeResult
   }
   const entries: Entry[] = []
@@ -368,7 +373,8 @@ async function processRun(db: Db, runId: number, pairs: PairRow[], opts: Opts) {
     const prevSide = toSide(lastOk.get(p.id))
     if (prevSide && JSON.stringify(prevSide) !== JSON.stringify(current)) tally.changedSincePrev++
 
-    const { decision } = decide(status, toSide(lastJudged.get(p.id)), current)
+    const baseline = lastJudged.get(p.id)
+    const { decision, changes } = decide(status, toSide(baseline), current)
     if (decision.kind === 'judge') tally.toJudge++
     else if (decision.kind === 'keep') tally.keep++
     else {
@@ -376,7 +382,16 @@ async function processRun(db: Db, runId: number, pairs: PairRow[], opts: Opts) {
       await logStatus(p.id, status, 'unfixed', '처리 완료 후 변경 없음')
       status = 'unfixed'
     }
-    entries.push({ p, status, r, gsDetail, current, decision })
+    entries.push({
+      p,
+      status,
+      r,
+      gsDetail,
+      current,
+      decision,
+      changes,
+      prevVerdict: (baseline?.verdict as Verdict | null) ?? null,
+    })
     console.log(
       `  ${p.matCode} CJ 상세 ${r.cjDetail.length}장 · GS 상세 ${gsDetail.length}장(공통 ${gsDetail.filter((d) => d.common).length}) → ${decision.kind}${decision.kind === 'judge' ? `(${decision.reason})` : ''}`,
     )
@@ -398,6 +413,8 @@ async function processRun(db: Db, runId: number, pairs: PairRow[], opts: Opts) {
           },
           opts.judgeModel,
         )
+        // 바뀐 영역만 새 판정 — 안 바뀐 영역은 직전 판정 유지(AI 판정 흔들림 방지)
+        e.judge.verdict = mergeVerdict(e.prevVerdict, e.judge.verdict, e.changes)
         const v = e.judge.verdict
         console.log(`  ${e.p.matCode} 판정 ${v.thumbnail}/${v.detail} (${Math.round(e.judge.usage.judgeMs / 1000)}s)`)
       } catch (err) {

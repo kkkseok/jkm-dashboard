@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { combineHashes, decide, findCommonHashes, statusAfterVerdict, type SideHashes } from '../gate'
+import { combineHashes, decide, findCommonHashes, mergeVerdict, statusAfterVerdict, type SideHashes } from '../gate'
 import type { Verdict } from '../judge-rules'
 
 const H: SideHashes = { cjThumb: 'a', gsThumb: 'b', cjDetail: 'c', gsDetail: 'd' }
@@ -94,5 +94,34 @@ describe('statusAfterVerdict', () => {
 
   it('둘 다 same 이면 일치 (처리 완료 → 해결)', () => {
     expect(statusAfterVerdict('done', v('same', 'same'))).toBe('match')
+  })
+})
+
+describe('mergeVerdict', () => {
+  const prev: Verdict = { thumbnail: 'same', detail: 'diff', differences: [{ area: 'detail', what: '함량 표기', cj: '94%', gs: '93%' }], summary: '상세 함량 다름' }
+  const flipped: Verdict = { thumbnail: 'diff', detail: 'same', differences: [{ area: 'thumbnail', what: '패키지 색', cj: '주황', gs: '갈색' }], summary: '썸네일 다름' }
+  const noChange = { cjThumb: false, gsThumb: false, cjDetail: false, gsDetail: false }
+
+  it('바뀐 영역만 새 판정, 나머지는 직전 판정 유지', () => {
+    const r = mergeVerdict(prev, flipped, { ...noChange, gsDetail: true })
+    expect(r.thumbnail).toBe('same') // 썸네일 해시 그대로 → 흔들린 diff 무시
+    expect(r.detail).toBe('same') // 상세는 바뀌었으니 새 판정
+    expect(r.differences).toEqual([])
+    expect(r.summary).toBe('일치')
+  })
+
+  it('직전 판정의 근거도 영역별로 유지된다', () => {
+    const r = mergeVerdict(prev, flipped, { ...noChange, cjThumb: true })
+    expect(r).toEqual({
+      thumbnail: 'diff',
+      detail: 'diff',
+      differences: [flipped.differences[0], prev.differences[0]],
+      summary: '썸네일: 패키지 색 / 상세: 함량 표기',
+    })
+  })
+
+  it('첫 판정이거나 양쪽 다 바뀌면 새 판정 그대로', () => {
+    expect(mergeVerdict(null, flipped, null)).toBe(flipped)
+    expect(mergeVerdict(prev, flipped, { cjThumb: true, gsThumb: false, cjDetail: false, gsDetail: true })).toBe(flipped)
   })
 })
