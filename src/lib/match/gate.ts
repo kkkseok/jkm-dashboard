@@ -23,7 +23,7 @@ export type HashChanges = Record<keyof SideHashes, boolean>
 
 export type GateDecision =
   /** AI 판정 필요. */
-  | { kind: 'judge'; reason: 'first' | 'changed' }
+  | { kind: 'judge'; reason: 'first' | 'changed' | 'rules' }
   /** 판정 유지 — 기준 이후 변화 없음. */
   | { kind: 'keep' }
   /** 처리 완료였는데 기준 이후 양쪽 다 그대로 → AI 없이 미반영. */
@@ -74,16 +74,20 @@ export function diffHashes(baseline: SideHashes, current: SideHashes): HashChang
 /**
  * @param status   현재 상태 ('error' 는 호출 전에 직전 상태로 복원해서 넘긴다)
  * @param baseline 마지막 AI 판정 check 의 해시. 판정 이력이 없으면 null.
+ * @param rulesChanged 기준 판정의 규칙 버전이 현재 RULES_VERSION 과 다름.
  */
 export function decide(
   status: MatchStatus,
   baseline: SideHashes | null,
   current: SideHashes,
+  rulesChanged = false,
 ): { decision: GateDecision; changes: HashChanges | null } {
   // 'new' = 미판정 또는 URL 변경으로 초기화된 쌍 → 이전 판정 기준은 쓰지 않는다.
   if (!baseline || status === 'new') {
     return { decision: { kind: 'judge', reason: 'first' }, changes: null }
   }
+  // 판정 규칙이 바뀌었으면 해시와 무관하게 전체 재판정 (changes=null → 직전 판정과 병합하지 않음).
+  if (rulesChanged) return { decision: { kind: 'judge', reason: 'rules' }, changes: null }
   const changes = diffHashes(baseline, current)
   const anyChanged = Object.values(changes).some(Boolean)
   if (anyChanged) return { decision: { kind: 'judge', reason: 'changed' }, changes }

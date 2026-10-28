@@ -374,7 +374,8 @@ async function processRun(db: Db, runId: number, pairs: PairRow[], opts: Opts) {
     if (prevSide && JSON.stringify(prevSide) !== JSON.stringify(current)) tally.changedSincePrev++
 
     const baseline = lastJudged.get(p.id)
-    const { decision, changes } = decide(status, toSide(baseline), current)
+    const rulesChanged = !!baseline && baseline.rulesVersion !== RULES_VERSION
+    const { decision, changes } = decide(status, toSide(baseline), current, rulesChanged)
     if (decision.kind === 'judge') tally.toJudge++
     else if (decision.kind === 'keep') tally.keep++
     else {

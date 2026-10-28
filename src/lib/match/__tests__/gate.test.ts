@@ -30,6 +30,12 @@ describe('decide', () => {
     expect(r.changes).toEqual({ cjThumb: false, gsThumb: false, cjDetail: true, gsDetail: false })
   })
 
+  it('판정 규칙이 바뀌면 해시가 그대로여도 전체 재판정 (병합 안 함)', () => {
+    for (const s of ['match', 'diff', 'done'] as const) {
+      expect(decide(s, H, { ...H }, true)).toEqual({ decision: { kind: 'judge', reason: 'rules' }, changes: null })
+    }
+  })
+
   it('처리 완료인데 양쪽 다 그대로면 AI 없이 미반영', () => {
     expect(decide('done', H, { ...H }).decision).toEqual({ kind: 'unfixed' })
   })
