@@ -3,6 +3,7 @@
 import { db } from '@/db/client'
 import { matchCheck, matchPair, matchRun, matchStatusLog } from '@/db/schema'
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
+import { diffImageList } from './gate'
 import type { Verdict } from './judge-rules'
 import {
   MATCH_STATUSES,
@@ -101,7 +102,7 @@ export async function getMatchDashboard(): Promise<MatchDashboard> {
   }
 }
 
-type StoredImage = { url: string; desc?: string; common?: boolean }
+type StoredImage = { url: string; desc?: string; hash?: string | null; common?: boolean }
 
 export async function getMatchPairDetail(pairId: number): Promise<MatchPairDetail> {
   const [p] = await db.select().from(matchPair).where(eq(matchPair.id, pairId))
@@ -119,12 +120,14 @@ export async function getMatchPairDetail(pairId: number): Promise<MatchPairDetai
     .where(and(eq(matchCheck.pairId, pairId), eq(matchCheck.fetchOk, true)))
     .orderBy(desc(matchCheck.id))
     .limit(1)
-  const [judged] = await db
-    .select({ createdAt: matchCheck.createdAt, model: matchCheck.model, verdict: matchCheck.verdict })
+  // 최근 판정 2건 — [0] 은 현재 판정, 이미지 변경 표시의 기준은 둘 중 "지금과 이미지가 달랐던" 최근 판정.
+  const judgedChecks = await db
+    .select()
     .from(matchCheck)
     .where(and(eq(matchCheck.pairId, pairId), eq(matchCheck.judged, true)))
     .orderBy(desc(matchCheck.id))
-    .limit(1)
+    .limit(2)
+  const judged = judgedChecks.at(0)
   const logs = await db
     .select()
     .from(matchStatusLog)
@@ -133,8 +136,31 @@ export async function getMatchPairDetail(pairId: number): Promise<MatchPairDetai
     .limit(20)
 
   const toImages = (v: unknown): StoredImage[] => (Array.isArray(v) ? (v as StoredImage[]) : [])
-  const strip = (d: StoredImage): MatchDetailImage => (d.desc ? { url: d.url, desc: d.desc } : { url: d.url })
   const gsAll = toImages(ok?.gsDetail)
+  const cjShown = toImages(ok?.cjDetail)
+  const gsShown = gsAll.filter((d) => !d.common)
+
+  // 이미지 변경 표시: 기준 = 지금과 해시가 다른 가장 최근 판정. 대기 중인 재판정이면 "판정 이후 바뀐 것",
+  // 이미 재판정됐으면 "그 판정을 일으킨 변경"이 된다.
+  const hashes = (list: StoredImage[]) => list.map((d) => d.hash ?? null)
+  const base = ok
+    ? judgedChecks.find(
+        (j) =>
+          j.id !== ok.id &&
+          (j.cjThumbHash !== ok.cjThumbHash ||
+            j.gsThumbHash !== ok.gsThumbHash ||
+            j.cjDetailHash !== ok.cjDetailHash ||
+            j.gsDetailHash !== ok.gsDetailHash),
+      )
+    : undefined
+  // GS 기준 목록은 공통 이미지도 포함한다 — 공통 판정만 바뀐 이미지를 새 이미지로 잘못 표시하지 않게.
+  const cjDiff = base ? diffImageList(hashes(cjShown), hashes(toImages(base.cjDetail))) : null
+  const gsDiff = base ? diffImageList(hashes(gsShown), hashes(toImages(base.gsDetail))) : null
+  const strip = (d: StoredImage, changed: boolean | undefined): MatchDetailImage => ({
+    url: d.url,
+    ...(d.desc && { desc: d.desc }),
+    ...(changed && { changed: true }),
+  })
 
   return {
     pair: {
@@ -156,9 +182,19 @@ export async function getMatchPairDetail(pairId: number): Promise<MatchPairDetai
           checkedAt: iso(ok.createdAt)!,
           cjThumbUrl: ok.cjThumbUrl,
           gsThumbUrl: ok.gsThumbUrl,
-          cjDetail: toImages(ok.cjDetail).map(strip),
-          gsDetail: gsAll.filter((d) => !d.common).map(strip),
+          cjDetail: cjShown.map((d, i) => strip(d, cjDiff?.changed[i])),
+          gsDetail: gsShown.map((d, i) => strip(d, gsDiff?.changed[i])),
           gsCommonCount: gsAll.filter((d) => d.common).length,
+          changes:
+            base && cjDiff && gsDiff
+              ? {
+                  since: iso(base.createdAt)!,
+                  cjThumb: base.cjThumbHash !== ok.cjThumbHash,
+                  gsThumb: base.gsThumbHash !== ok.gsThumbHash,
+                  cjRemoved: cjDiff.removed,
+                  gsRemoved: gsDiff.removed,
+                }
+              : null,
         }
       : null,
     judged: judged?.verdict

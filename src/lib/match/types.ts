@@ -130,7 +130,19 @@ export type MatchDashboard = {
   usage: MatchUsageDay[]
 }
 
-export type MatchDetailImage = { url: string; desc?: string }
+/** changed = 기준 판정(latest.changes.since) 때는 없던 이미지. */
+export type MatchDetailImage = { url: string; desc?: string; changed?: boolean }
+
+/** 기준 판정 이후 이미지 변경 요약 (gate.diffImageList). */
+export type MatchImageChanges = {
+  /** 비교 기준이 된 판정 시각. */
+  since: string
+  cjThumb: boolean
+  gsThumb: boolean
+  /** 기준에는 있었는데 지금은 빠진 상세 이미지 수. */
+  cjRemoved: number
+  gsRemoved: number
+}
 
 export type MatchPairDetail = {
   pair: MatchDashboardRow & { resolvedNote: string | null }
@@ -143,6 +155,8 @@ export type MatchPairDetail = {
     /** GS 공통 공지 이미지는 제외한 목록. */
     gsDetail: MatchDetailImage[]
     gsCommonCount: number
+    /** 이미지가 지금과 달랐던 가장 최근 판정 대비 변경. 그런 판정이 없으면 null. */
+    changes: MatchImageChanges | null
   } | null
   /** 마지막 AI 판정. */
   judged: {

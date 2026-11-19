@@ -28,7 +28,15 @@ export type VerdictDifference = {
   /** 배치가 구간 번호를 원본 이미지 위치로 바꿔 붙인 근거 (evidence.ts). */
   cjEvidence?: EvidenceCrop[]
   gsEvidence?: EvidenceCrop[]
+  /**
+   * 근거 재검증 결과(2026-11-19, MATCH_VERIFY=on) — 근거 부분만 원본 해상도로 잘라 한 번 더 확인한 것.
+   * 1차 판정과 엇갈리면(rejected) 확신도를 낮춰 판정 보류로 보낸다(gate.applyVerification). 없으면 재검증 전.
+   */
+  verify?: VerifyResult
+  verifyNote?: string
 }
+
+export type VerifyResult = 'confirmed' | 'rejected' | 'unsure'
 
 export type Verdict = {
   thumbnail: 'same' | 'diff' | 'unsure'
@@ -99,3 +107,49 @@ export const JUDGE_SYSTEM_PROMPT = `너는 온라인 쇼핑몰 상품 콘텐츠 
 - 각 항목의 cjSegments / gsSegments: 상세(area=detail) 차이를 확인한 구간 번호. [CJ 상세 3/8] 이면 3. 해당 쪽에 그 내용이 아예 없으면 가장 가까운 대응 구간을 적는다. 썸네일 차이는 빈 배열.
 - summary 는 한국어 한 줄(60자 이내). 다르면 핵심 차이, 같으면 "일치".
 - 반드시 지정된 JSON 형식으로만 답한다.`
+
+// ── 근거 재검증 ─────────────────────────────────────────
+
+/** 재검증 출력 형식. index = 요청의 [차이 n] 번호(1-based). */
+export const VERIFY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['results'],
+  properties: {
+    results: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['index', 'result', 'note'],
+        properties: {
+          index: { type: 'integer' },
+          result: { type: 'string', enum: ['confirmed', 'rejected', 'unsure'] },
+          note: { type: 'string' },
+        },
+      },
+    },
+  },
+} as const
+
+/** 판정 규칙 본문(핵심 원칙 ~ 차이로 본다) — 재검증도 **같은 규칙 문장**을 쓴다(규칙 원본은 JUDGE_SYSTEM_PROMPT 하나). */
+const RULES_BODY = (() => {
+  const from = JUDGE_SYSTEM_PROMPT.indexOf('## 핵심 원칙')
+  const to = JUDGE_SYSTEM_PROMPT.indexOf('## 판정')
+  if (from < 0 || to < from) throw new Error('JUDGE_SYSTEM_PROMPT 에서 규칙 본문 구간을 찾지 못했습니다.')
+  return JUDGE_SYSTEM_PROMPT.slice(from, to).trim()
+})()
+
+export const VERIFY_SYSTEM_PROMPT = `너는 온라인 쇼핑몰 상품 콘텐츠 대조 결과를 다시 확인하는 검수자다.
+1차 검수자가 원본 쇼핑몰(CJ더마켓)과 판매 채널(GS샵)의 같은 상품에서 찾았다고 보고한 "차이"를, 해당 부분만 크게 잘라 낸 이미지로 하나씩 다시 확인한다.
+
+${RULES_BODY}
+
+## 확인 방법
+- 각 [차이 n] 뒤에 1차 검수자의 설명과 CJ·GS 근거 이미지가 온다. 근거 이미지는 그 차이가 있다고 한 부분을 원본에서 잘라 낸 것이다.
+- confirmed: 근거 이미지에서 그 차이가 실제로 보이고, 위 규칙상 차이로 보는 것에 해당한다.
+- rejected: 근거 이미지에서 양쪽이 같아 그런 차이가 보이지 않거나, 보이더라도 위 규칙상 무시하는 것이다.
+- unsure: 근거 이미지가 그 부분을 담지 못했거나 글자가 읽히지 않아 판단할 수 없다. 추측하지 않는다.
+- "한쪽에 없다"는 차이는 근거가 일부만 잘린 것일 수 있다. 주어진 이미지만으로 확인되지 않으면 unsure.
+- note 는 한국어 한 줄(40자 이내)로 판단 이유.
+- 모든 [차이 n] 에 대해 하나씩 답한다. 반드시 지정된 JSON 형식으로만 답한다.`

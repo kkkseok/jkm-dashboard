@@ -24,7 +24,11 @@ export function segmentToCrops(
   width: number,
 ): EvidenceCrop[] {
   const y0 = (segment - 1) * segmentHeight
-  const y1 = y0 + segmentHeight
+  return rangeToCrops(parts, y0, y0 + segmentHeight, width)
+}
+
+/** 띠의 세로 범위 [y0, y1) px → 겹치는 원본 이미지 조각들. */
+export function rangeToCrops(parts: StripPart[], y0: number, y1: number, width: number): EvidenceCrop[] {
   const out: EvidenceCrop[] = []
   for (const p of parts) {
     const a = Math.max(y0, p.top)
@@ -54,8 +58,24 @@ export function segmentsToCrops(
     .filter((n) => Number.isInteger(n) && n >= 1 && n <= count)
     .sort((a, b) => a - b)
     .slice(0, maxSegments)
+  return mergeCrops(valid.flatMap((n) => segmentToCrops(parts, n, segmentHeight, width)))
+}
+
+/** 여러 세로 범위 → 조각들 (정렬 선별의 "조각" 근거용). 범위 수는 maxRanges 로 제한. */
+export function rangesToCrops(
+  parts: StripPart[],
+  ranges: { top: number; bottom: number }[],
+  width: number,
+  maxRanges = 3,
+): EvidenceCrop[] {
+  const sorted = [...ranges].sort((a, b) => a.top - b.top).slice(0, maxRanges)
+  return mergeCrops(sorted.flatMap((r) => rangeToCrops(parts, r.top, r.bottom, width)))
+}
+
+/** 같은 이미지의 붙어 있는 조각은 하나로 합친다. */
+function mergeCrops(crops: EvidenceCrop[]): EvidenceCrop[] {
   const merged: EvidenceCrop[] = []
-  for (const c of valid.flatMap((n) => segmentToCrops(parts, n, segmentHeight, width))) {
+  for (const c of crops) {
     const last = merged[merged.length - 1]
     if (last && last.url === c.url && Math.abs(last.bottom - c.top) < 1e-3) last.bottom = c.bottom
     else merged.push({ ...c })

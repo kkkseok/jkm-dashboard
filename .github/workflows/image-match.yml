@@ -73,6 +73,10 @@ jobs:
           DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_BIN: claude
+          # 정렬 선별(같은 부분은 걸러내고 안 맞는 조각만 판정) · 근거 재검증(다름 판정의 근거만 한 번 더 확인).
+          # 끄려면 지우거나 off. 측정 기록: _workspace/01_design_image_match.md §6-2
+          MATCH_ALIGN: 'on'
+          MATCH_VERIFY: 'on'
           MATCH_GS_PROXY_URL: https://jkm-dashboard.vercel.app/api/match/gs-page
           MATCH_PROXY_KEY: ${{ secrets.MATCH_PROXY_KEY }}
           ONLY: ${{ inputs.only }}

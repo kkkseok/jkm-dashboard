@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { segmentToCrops, segmentsToCrops, type StripPart } from '../evidence'
+import { rangesToCrops, segmentToCrops, segmentsToCrops, type StripPart } from '../evidence'
 
 // 폭 700 띠: a(0~1000) · b(1000~3800) · c(3800~4200)
 const W = 700
@@ -27,6 +27,20 @@ describe('segmentToCrops', () => {
       { url: 'b', top: 0.6429, bottom: 1, aspect: 4 },
       { url: 'c', top: 0, bottom: 1, aspect: 0.5714 },
     ])
+  })
+})
+
+describe('rangesToCrops', () => {
+  it('세로 범위(px)를 원본 이미지 위치로 바꾸고, 붙어 있는 조각은 합친다', () => {
+    expect(rangesToCrops(parts, [{ top: 1700, bottom: 2400 }, { top: 500, bottom: 1700 }], W)).toEqual([
+      { url: 'a', top: 0.5, bottom: 1, aspect: 1.4286 },
+      { url: 'b', top: 0, bottom: 0.5, aspect: 4 },
+    ])
+  })
+
+  it('범위 수는 최대 개수로 자른다', () => {
+    const ranges = [{ top: 0, bottom: 100 }, { top: 1000, bottom: 1100 }, { top: 3800, bottom: 3900 }]
+    expect(rangesToCrops(parts, ranges, W, 2).map((c) => c.url)).toEqual(['a', 'b'])
   })
 })
 

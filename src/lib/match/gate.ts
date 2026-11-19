@@ -9,7 +9,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import type { Verdict } from './judge-rules'
+import type { Confidence, Verdict, VerifyResult } from './judge-rules'
 import type { MatchStatus } from './types'
 
 export type SideHashes = {
@@ -72,6 +72,24 @@ export function diffHashes(baseline: SideHashes, current: SideHashes): HashChang
 }
 
 /**
+ * 이미지 목록에서 기준(reference) 대비 바뀐 것 찾기 — 화면에 "새로 들어온 이미지"를 표시하는 데 쓴다.
+ *   changed[i] = current[i] 의 해시가 기준 목록에 없음(새 이미지·교체된 이미지). 해시 없는(깨진) 이미지는 false.
+ *   removed    = 기준에는 있었는데 지금은 없는 이미지 종류 수.
+ * 순서만 바뀐 것은 변경으로 치지 않는다.
+ */
+export function diffImageList(
+  current: (string | null)[],
+  reference: (string | null)[],
+): { changed: boolean[]; removed: number } {
+  const ref = new Set(reference.filter((h): h is string => !!h))
+  const cur = new Set(current.filter((h): h is string => !!h))
+  return {
+    changed: current.map((h) => !!h && !ref.has(h)),
+    removed: [...ref].filter((h) => !cur.has(h)).length,
+  }
+}
+
+/**
  * @param status   현재 상태 ('error' 는 호출 전에 직전 상태로 복원해서 넘긴다)
  * @param baseline 마지막 AI 판정 check 의 해시. 판정 이력이 없으면 null.
  * @param rulesChanged 기준 판정의 규칙 버전이 현재 RULES_VERSION 과 다름.
@@ -112,6 +130,90 @@ export function statusAfterVerdict(status: MatchStatus, v: Verdict): MatchStatus
   }
   if (parts.includes('unsure')) return 'unsure'
   return 'match'
+}
+
+/** 판정 실패 기록의 note 접두어 — match_status_log 에서 쌍별 연속 실패 횟수를 세는 데 쓴다. */
+export const JUDGE_FAIL_NOTE = '판정 실패'
+/** 마지막 판정 이후 이 횟수 이상 실패한 쌍은 대기열 맨 뒤로 보낸다(계속 실패하는 쌍이 상한을 차지하지 않게). */
+export const JUDGE_FAIL_DEMOTE = 2
+
+export type JudgeQueueItem = {
+  id: number
+  status: MatchStatus
+  reason: 'first' | 'changed' | 'rules'
+  lastJudgedAt: Date | null
+  /** 마지막 판정 이후 판정 실패 횟수. */
+  recentFailures: number
+}
+
+/**
+ * 판정 순위(작을수록 먼저). 1회 판정 상한이 있어 뒤쪽은 다음 실행으로 밀린다.
+ *   0 처리 완료·미반영 — 사용자가 GS 를 고치고 결과를 기다리는 쌍
+ *   1 이미지 변경       — 기존 판정이 더는 맞지 않을 수 있음
+ *   2 첫 판정           — 아직 결과가 없음
+ *   3 규칙 변경         — 기존 판정이 있어 가장 덜 급함
+ */
+export function judgeRank(item: Pick<JudgeQueueItem, 'status' | 'reason'>): number {
+  if (item.status === 'done' || item.status === 'unfixed') return 0
+  if (item.reason === 'changed') return 1
+  if (item.reason === 'first') return 2
+  return 3
+}
+
+/** 판정 대기열 정렬: 반복 실패 쌍은 맨 뒤 → 순위 → 오래 판정 안 된 쌍(미판정 먼저) → id. 원본 배열은 건드리지 않는다. */
+export function sortJudgeQueue<T extends JudgeQueueItem>(items: T[]): T[] {
+  const demoted = (x: T) => (x.recentFailures >= JUDGE_FAIL_DEMOTE ? 1 : 0)
+  const judgedAt = (x: T) => x.lastJudgedAt?.getTime() ?? 0
+  return [...items].sort(
+    (a, b) =>
+      demoted(a) - demoted(b) || judgeRank(a) - judgeRank(b) || judgedAt(a) - judgedAt(b) || a.id - b.id,
+  )
+}
+
+/**
+ * AI 에 넣을 수 없는 쌍(이미지 수 상한 초과 등)의 판정 — 양쪽 다 unsure 로 두어 사람이 확인하게 한다.
+ * 판정으로 기록해야 해시 기준(baseline)이 생겨, 이미지가 바뀌기 전까지 매 실행마다 다시 시도하지 않는다.
+ */
+export function skippedVerdict(reason: string): Verdict {
+  return { thumbnail: 'unsure', detail: 'unsure', differences: [], summary: reason.slice(0, 60) }
+}
+
+/** 근거 재검증 대상 = 판정이 diff 인 영역의 차이 항목(differences 의 위치). 한 번에 max 개까지. */
+export function verifyTargets(v: Verdict, max = 6): number[] {
+  return v.differences.flatMap((d, i) => (v[d.area] === 'diff' ? [i] : [])).slice(0, max)
+}
+
+/**
+ * 근거 재검증 결과를 판정에 반영한다 — **차이 항목을 지우지 않고 확신도만 조정**한다.
+ *   confirmed 두 번 봐서 같은 결론 → 확신 높음
+ *   rejected  1차와 엇갈림        → 확신 낮음 (확신 높은 차이가 남지 않으면 statusAfterVerdict 가 판정 보류로 보낸다)
+ *   unsure    근거로 확인 불가    → 높음이었다면 보통으로
+ * 재검증이 1차 판정을 뒤집어 '일치'로 만들지는 않는다 — 재검증도 틀릴 수 있어서, 엇갈리면 사람이 본다.
+ *
+ * @param targets verifyTargets 가 고른 differences 위치
+ * @param results index = targets 의 순번(1-based)
+ */
+export function applyVerification(
+  v: Verdict,
+  targets: number[],
+  results: { index: number; result: VerifyResult; note?: string }[],
+): Verdict {
+  const byPos = new Map<number, { result: VerifyResult; note?: string }>()
+  for (const r of results) {
+    const pos = targets[r.index - 1]
+    if (pos !== undefined && !byPos.has(pos)) byPos.set(pos, r)
+  }
+  return {
+    ...v,
+    differences: v.differences.map((d, i) => {
+      const r = byPos.get(i)
+      if (!r) return d
+      const before: Confidence = d.confidence ?? 'high'
+      const confidence: Confidence =
+        r.result === 'confirmed' ? 'high' : r.result === 'rejected' ? 'low' : before === 'high' ? 'medium' : before
+      return { ...d, confidence, verify: r.result, ...(r.note && { verifyNote: r.note.slice(0, 80) }) }
+    }),
+  }
 }
 
 const AREA_LABEL = { thumbnail: '썸네일', detail: '상세' } as const

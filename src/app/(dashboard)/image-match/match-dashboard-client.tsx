@@ -412,6 +412,9 @@ const CONFIDENCE_LABEL: Record<Confidence, { label: string; className: string }>
 }
 
 /** 차이 1건 — 설명 + CJ·GS 의 해당 부분 이미지(근거)를 나란히. */
+/** 근거 재검증 결과 라벨 (근거 부분만 다시 본 2차 확인). */
+const VERIFY_LABEL = { confirmed: "차이 확인됨", rejected: "1차 판정과 엇갈림", unsure: "근거로 확인 불가" } as const
+
 function DifferenceCard({ d }: { d: VerdictDifference }) {
   const conf = CONFIDENCE_LABEL[d.confidence ?? "high"]
   const hasEvidence = (d.cjEvidence?.length ?? 0) + (d.gsEvidence?.length ?? 0) > 0
@@ -424,6 +427,12 @@ function DifferenceCard({ d }: { d: VerdictDifference }) {
           <Badge variant="outline" className={cn("border-transparent", conf.className)}>
             {conf.label}
           </Badge>
+        )}
+        {d.verify && (
+          <span className="text-xs text-muted-foreground" title={d.verifyNote}>
+            재확인: {VERIFY_LABEL[d.verify]}
+            {d.verifyNote ? ` — ${d.verifyNote}` : ""}
+          </span>
         )}
       </div>
       <div className="grid grid-cols-2 gap-3 text-xs">
@@ -629,17 +638,31 @@ function PairSheetBody({ pairId, onClose }: { pairId: number; onClose: () => voi
                 <section className="space-y-2">
                   <h3 className="text-sm font-medium">썸네일</h3>
                   <div className="grid grid-cols-2 gap-3">
-                    <ImageColumn title="CJ (원본)" href={p.cjUrl} urls={detail.latest.cjThumbUrl ? [detail.latest.cjThumbUrl] : []} />
-                    <ImageColumn title="GS" href={p.gsUrl} urls={detail.latest.gsThumbUrl ? [detail.latest.gsThumbUrl] : []} />
+                    <ImageColumn title="CJ (원본)" href={p.cjUrl} urls={detail.latest.cjThumbUrl ? [detail.latest.cjThumbUrl] : []} changed={[!!detail.latest.changes?.cjThumb]} />
+                    <ImageColumn title="GS" href={p.gsUrl} urls={detail.latest.gsThumbUrl ? [detail.latest.gsThumbUrl] : []} changed={[!!detail.latest.changes?.gsThumb]} />
                   </div>
                 </section>
                 <section className="space-y-2">
                   <h3 className="text-sm font-medium">
                     상세 <span className="text-xs font-normal text-muted-foreground">(GS 공통 공지 {detail.latest.gsCommonCount}장 제외 · 수집 {fmt(detail.latest.checkedAt)})</span>
                   </h3>
+                  {detail.latest.changes && (
+                    <p className="text-xs text-muted-foreground">
+                      {fmt(detail.latest.changes.since)} 판정 이후 —{" "}
+                      {(["cj", "gs"] as const)
+                        .map((side) => {
+                          const added = detail.latest![`${side}Detail`].filter((d) => d.changed).length
+                          const removed = detail.latest!.changes![`${side}Removed`]
+                          const thumb = detail.latest!.changes![`${side}Thumb`]
+                          const parts = [thumb && "썸네일 변경", added > 0 && `상세 새 이미지 ${added}장`, removed > 0 && `빠진 이미지 ${removed}장`].filter(Boolean)
+                          return `${side === "cj" ? "CJ" : "GS"}: ${parts.length ? parts.join(" · ") : "변경 없음"}`
+                        })
+                        .join(" / ")}
+                    </p>
+                  )}
                   <div className="grid max-h-[80vh] grid-cols-2 gap-3 overflow-y-auto rounded-lg border p-2">
-                    <ImageColumn title={`CJ ${detail.latest.cjDetail.length}장`} urls={detail.latest.cjDetail.map((d) => d.url)} />
-                    <ImageColumn title={`GS ${detail.latest.gsDetail.length}장`} urls={detail.latest.gsDetail.map((d) => d.url)} />
+                    <ImageColumn title={`CJ ${detail.latest.cjDetail.length}장`} urls={detail.latest.cjDetail.map((d) => d.url)} changed={detail.latest.cjDetail.map((d) => !!d.changed)} />
+                    <ImageColumn title={`GS ${detail.latest.gsDetail.length}장`} urls={detail.latest.gsDetail.map((d) => d.url)} changed={detail.latest.gsDetail.map((d) => !!d.changed)} />
                   </div>
                 </section>
               </>
@@ -655,7 +678,8 @@ function PairSheetBody({ pairId, onClose }: { pairId: number; onClose: () => voi
                   <li key={i} className="flex flex-wrap gap-x-2 text-muted-foreground">
                     <span className="tabular-nums">{fmt(l.at)}</span>
                     <span className="text-foreground">
-                      {l.from ? `${MATCH_STATUS_LABEL[l.from]} → ` : ""}
+                      {/* 상태가 그대로인 기록(판정 실패 등)은 화살표 없이 현재 상태만 */}
+                      {l.from && l.from !== l.to ? `${MATCH_STATUS_LABEL[l.from]} → ` : ""}
                       {MATCH_STATUS_LABEL[l.to]}
                     </span>
                     <span>({{ batch: "배치", user: "사용자", upload: "업로드" }[l.actor] ?? l.actor})</span>
@@ -707,7 +731,8 @@ function PairSheetBody({ pairId, onClose }: { pairId: number; onClose: () => voi
 }
 
 /** 원본 URL 그대로 표시 — 이미지는 저장하지 않는다(설계 §3). */
-function ImageColumn({ title, urls, href }: { title: string; urls: string[]; href?: string }) {
+/** changed[i] = urls[i] 가 기준 판정 이후 새로 들어온(교체된) 이미지 — 테두리와 "변경" 표시를 붙인다. */
+function ImageColumn({ title, urls, href, changed }: { title: string; urls: string[]; href?: string; changed?: boolean[] }) {
   return (
     <div className="min-w-0 space-y-1">
       <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -721,9 +746,12 @@ function ImageColumn({ title, urls, href }: { title: string; urls: string[]; hre
       {urls.length === 0 ? (
         <p className="text-xs text-muted-foreground">이미지 없음</p>
       ) : (
-        urls.map((u) => (
-          // eslint-disable-next-line @next/next/no-img-element -- 외부 쇼핑몰 원본 이미지를 그대로 보여준다(최적화·저장 불필요)
-          <img key={u} src={u} alt="" loading="lazy" className="w-full border bg-white" />
+        urls.map((u, i) => (
+          <div key={u} className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element -- 외부 쇼핑몰 원본 이미지를 그대로 보여준다(최적화·저장 불필요) */}
+            <img src={u} alt="" loading="lazy" className={cn("w-full border bg-white", changed?.[i] && "border-2 border-amber-500")} />
+            {changed?.[i] && <Badge className="absolute top-1 left-1 bg-amber-500 text-white">변경</Badge>}
+          </div>
         ))
       )}
     </div>
