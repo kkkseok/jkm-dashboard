@@ -7,7 +7,9 @@
  *   CJ더마켓  썸네일: og:image
  *             상세:   __NUXT_DATA__ 문서 중 docDispPtnCd="05", useYn="Y", dispOdr 순 (contDesc = 설명 문구)
  *   GS샵      썸네일: og:image 끝 사이즈(/280)를 /1000 으로 교체
- *             상세:   iframe#prdDetailIfr src 를 별도 요청 → 그 HTML 의 <img src> 순서
+ *             상세:   페이지 데이터의 prdImgDescd(기술서 HTML) → <img data-src|src> 순서
+ *                     (2026-11-23 구조 변경: iframe#prdDetailIfr 제거, 이미지도 GS 가공본 → 판매사 원본 주소.
+ *                      상품 페이지에 없으면 prdDescUrl(/prd/prdDesc.gs) 을 따로 받아 같은 방식으로 추출)
  */
 
 export type DetailImageRef = {
@@ -104,21 +106,34 @@ export function extractGsThumb(html: string): string | null {
   return /\/\d+$/.test(og) ? og.replace(/\/\d+$/, `/${GS_THUMB_SIZE}`) : og
 }
 
-/** GS 상세 iframe 절대 URL. */
+/**
+ * GS 상세 기술서 HTML — 페이지 데이터(JSON)의 `"prdImgDescd":"…"` 문자열을 푼 값.
+ * 상품 페이지와 상세 페이지(prdDesc.gs) 양쪽에 들어 있다. 없으면 null(구조 변경 신호).
+ */
+export function extractGsDescHtml(html: string): string | null {
+  const m = html.match(/"prdImgDescd"\s*:\s*("(?:[^"\\]|\\.)*")/)
+  return m ? (JSON.parse(m[1]) as string) : null
+}
+
+/** GS 상세 페이지 절대 URL — 페이지 데이터의 `"prdDescUrl"`. 상품 페이지에 기술서가 없을 때의 대체 경로. */
 export function extractGsDescUrl(html: string): string | null {
-  const m =
-    html.match(/<iframe[^>]+id=["']prdDetailIfr["'][^>]*src=["']([^"']+)["']/i) ??
-    html.match(/<iframe[^>]+src=["']([^"']+)["'][^>]*id=["']prdDetailIfr["']/i)
+  const m = html.match(/"prdDescUrl"\s*:\s*"([^"]+)"/)
   return m ? new URL(decodeEntities(m[1]), GS_ORIGIN).href : null
 }
 
-/** GS 상세 iframe HTML → 이미지 목록 (주석 안의 img 는 제외). */
+/**
+ * GS 상세 기술서 HTML → 이미지 목록 (주석 안의 img 는 제외).
+ * 상품 페이지 쪽 기술서는 첫 장만 src, 나머지는 지연 로딩용 data-src 라서 data-src 를 우선한다.
+ */
 export function extractGsDetail(descHtml: string): DetailImageRef[] {
   const body = descHtml.replace(/<!--[\s\S]*?-->/g, '')
   const seen = new Set<string>()
   const out: DetailImageRef[] = []
-  for (const m of body.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) {
-    const url = decodeEntities(m[1])
+  for (const [tag] of body.matchAll(/<img\b[^>]*>/gi)) {
+    const attr = (name: string) => tag.match(new RegExp(`\\s${name}\\s*=\\s*(["']?)([^"'\\s>]+)\\1`, 'i'))?.[2]
+    const raw = attr('data-src') ?? attr('src')
+    if (!raw) continue
+    const url = decodeEntities(raw.startsWith('//') ? `https:${raw}` : raw)
     if (!/^https?:\/\//i.test(url) || seen.has(url)) continue
     seen.add(url)
     out.push({ url })

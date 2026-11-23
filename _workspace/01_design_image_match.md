@@ -24,7 +24,7 @@
 
 [GitHub Actions cron, 매일 KST 새벽]  scripts/match/run.ts
   1. 등록된 전체 쌍 로드
-  2. 수집: CJ 페이지·GS 페이지·GS 상세 iframe → 썸네일/상세 이미지 URL
+  2. 수집: CJ 페이지·GS 페이지(기술서 포함) → 썸네일/상세 이미지 URL
   3. 이미지 다운로드 → 콘텐츠 해시 (GS 공통 영역 제외)
   4. 게이트: 양쪽 해시가 지난번과 같고 상태가 확정이면 → 이전 판정 유지 (AI 호출 없음)
   5. 판정 필요 쌍 → Claude 비전 판정 (Batch API)
@@ -40,7 +40,7 @@
 | | 썸네일 | 상세 |
 |---|---|---|
 | **CJ** | `og:image` (1080px 원본) | `__NUXT_DATA__` 의 문서 중 `docDispPtnCd="05"`, `useYn="Y"`, `dispOdr` 순. `contDesc`(이미지 설명 문구) 함께 저장. **mp4 는 제외** |
-| **GS** | `og:image` 의 끝 사이즈를 `/1000` 으로 교체 (`asset.m-gs.kr/prod/{prdid}/1/1000`) | iframe `#prdDetailIfr` src(`/mi15/prd/prdImgDesc.gs?...`) 를 별도 요청 → 주석 제거 후 `<img src>` 순서대로 |
+| **GS** | `og:image` 의 끝 사이즈를 `/1000` 으로 교체 (`asset.m-gs.kr/prod/{prdid}/1/1000`) | 상품 페이지 데이터(JSON)의 `prdImgDescd`(기술서 HTML) → 주석 제거 후 `<img data-src|src>` 순서대로. 없으면 `prdDescUrl`(`/prd/prdDesc.gs?...`)을 별도 요청. ※ 2026-11-23 GS 개편으로 iframe `#prdDetailIfr`(`/mi15/prd/prdImgDesc.gs`) 방식 폐기 — 그 주소는 이제 공통 배너만 준다. 상세 이미지도 GS 가공본(`asset.m-gs.kr/.../orgdesc`, 1200px 조각) → 판매사 원본(`jjack333.cafe24.com` 등)으로 바뀌었다 |
 
 - **GS 공통 영역 자동 제외:** 모든 GS 상세 앞에 판매사 공통 이미지(공식 인증 판매처 / 리셀러 공지 / 고객센터 제이케이엠 / 파손 교환 안내)가 붙는다. 이미지 해시가 **활성 GS 상품의 N% 이상(예: 30%)에 등장하면 공통 이미지로 간주**해 비교에서 뺀다. 수동 목록 관리 불필요. 브랜드 리뉴얼 안내처럼 일부 상품군 공통인 것도 같이 걸러진다.
 - **해시는 URL 이 아니라 이미지 바이트 기준.** GS 상세 URL 은 토큰형이라 바뀔 수 있다.
@@ -194,7 +194,7 @@ unsure ──사용자 "일치로 확정" / "불일치로 확정"──▶ match
 - 저장소가 **public** → GitHub Actions 표준 러너 무료 [확인필요: 현재 GitHub 정책]. 단 **Actions 로그가 공개**되므로 로그에 비밀값·DB 내용을 찍지 않는다(건수·자재코드 정도만).
 - GitHub Actions Secrets: `DATABASE_URL_UNPOOLED`, `CLAUDE_CODE_OAUTH_TOKEN`(로컬에서 `claude setup-token` 으로 발급, Max 구독). Vercel 쪽 추가 변수 없음. **public 저장소라 fork PR 워크플로에는 비밀값이 전달되지 않게** 트리거는 `schedule` / `workflow_dispatch` 만 쓴다.
 - **GS샵 해외 IP 차단 (2026-10-28 확인):** Actions 러너(미국)에 GS 는 1KB 오류 페이지("GS SHOP GS이숍의 새이름")를 준다. CJ·GS 이미지 서버(asset.m-gs.kr)·Supabase 는 정상.
-  → GS **페이지 HTML 만** Vercel 서울 함수 `/api/match/gs-page` 로 중계(`MATCH_GS_PROXY_URL`, 키 `MATCH_PROXY_KEY` = Vercel 환경변수·GitHub Secret 동일 값). 허용 URL 은 GS 상품 페이지·상세 iframe 뿐.
+  → GS **페이지 HTML 만** Vercel 서울 함수 `/api/match/gs-page` 로 중계(`MATCH_GS_PROXY_URL`, 키 `MATCH_PROXY_KEY` = Vercel 환경변수·GitHub Secret 동일 값). 허용 URL 은 GS 상품 페이지·상세 페이지(`/prd/prdDesc.gs`) 뿐.
   → 리전은 `vercel.json` `regions: ["icn1"]`(프로젝트 전체 함수). edge + `preferredRegion: 'icn1'` 은 실제 sin1(싱가포르)에서 실행돼 실패. 앱 전체가 DB(ap-northeast-2)와 같은 서울 리전이 됨.
 - 수동 실행: Actions 의 `workflow_dispatch`. (대시보드의 "지금 확인" 버튼은 GitHub 토큰이 필요해 후순위)
 - 참고: Vercel Hobby 는 약관상 비상업 용도 제한 — 이번 기능과 별개로 플랜 확인 필요.

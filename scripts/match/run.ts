@@ -28,6 +28,7 @@ import {
   describePage,
   extractCjDetail,
   extractCjThumb,
+  extractGsDescHtml,
   extractGsDescUrl,
   extractGsDetail,
   extractGsThumb,
@@ -167,11 +168,18 @@ async function collect(
   if (!cjThumbUrl) throw new Error(`CJ 썸네일(og:image) 없음 — ${describePage(cjHtml)}`)
   const gsThumbUrl = extractGsThumb(gsHtml)
   if (!gsThumbUrl) throw new Error(`GS 썸네일(og:image) 없음 — ${describePage(gsHtml)}`)
-  const gsDescUrl = extractGsDescUrl(gsHtml)
-  if (!gsDescUrl) throw new Error(`GS 상세 iframe 없음 — ${describePage(gsHtml)}`)
+  let gsDescHtml = extractGsDescHtml(gsHtml)
+  if (gsDescHtml === null) {
+    // 상품 페이지에 기술서가 없으면 상세 페이지(prdDesc.gs)를 따로 받는다.
+    const gsDescUrl = extractGsDescUrl(gsHtml)
+    if (!gsDescUrl) throw new Error(`GS 상세 기술서(prdImgDescd·prdDescUrl) 없음 — ${describePage(gsHtml)}`)
+    const descPage = await getText(gsDescUrl, pair.gsUrl)
+    gsDescHtml = extractGsDescHtml(descPage)
+    if (gsDescHtml === null) throw new Error(`GS 상세 페이지에 기술서 없음 — ${describePage(descPage)}`)
+  }
 
   const cjRefs = extractCjDetail(cjHtml)
-  const gsRefs = extractGsDetail(await getText(gsDescUrl, pair.gsUrl))
+  const gsRefs = extractGsDetail(gsDescHtml)
   if (gsRefs.length === 0) throw new Error('GS 상세 이미지 0장')
 
   // 썸네일은 URL 이 고정(GS /prod/{id}/1/1000)이라 캐시 없이 매번 내려받는다.

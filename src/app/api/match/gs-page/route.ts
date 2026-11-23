@@ -7,10 +7,11 @@
  * edge + preferredRegion 'icn1' 은 실제로 sin1(싱가포르)에서 실행돼 쓰지 않는다(2026-10-28 x-vercel-id 로 확인).
  *
  * 보호: x-match-proxy-key 헤더 = MATCH_PROXY_KEY (Vercel 환경변수 / GitHub Secret 동일 값).
- *       허용 URL 은 GS 상품 페이지·상세 iframe 두 가지뿐 — 임의 URL 중계(오픈 프록시) 방지.
+ *       허용 URL 은 GS 상품 페이지·상세 페이지(prdDesc.gs) 두 가지뿐 — 임의 URL 중계(오픈 프록시) 방지.
+ *       (2026-11-23 GS 구조 변경으로 상세 iframe /mi15/prd/prdImgDesc.gs → /prd/prdDesc.gs)
  */
 
-const ALLOWED = /^https:\/\/www\.gsshop\.com\/(prd\/prd\.gs|mi15\/prd\/prdImgDesc\.gs)\?/
+const ALLOWED = /^https:\/\/www\.gsshop\.com\/prd\/(prd|prdDesc)\.gs\?/
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
 

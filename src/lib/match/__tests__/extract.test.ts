@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import {
   extractCjDetail,
   extractCjThumb,
+  extractGsDescHtml,
   extractGsDescUrl,
   extractGsDetail,
   extractGsThumb,
@@ -61,17 +62,31 @@ describe('CJ', () => {
 })
 
 describe('GS', () => {
+  // 2026-11-23 구조: 기술서 HTML 이 페이지 데이터(JSON) 문자열로 들어 있다. 첫 장만 src, 나머지는 data-src.
+  const descd =
+    '<p align="center"><img src="https://jjack333.cafe24.com/cj_none.jpg"></p>\n' +
+    '<p align="center"><img data-src="https://jjack333.cafe24.com/CJ_cheiljedang/detail_page/210418.jpg"></p>'
   const html = `<meta property="og:image" content="https://asset.m-gs.kr/prod/1066284526/1/280">
-    <iframe id="prdDetailIfr" name="prdDetailIfr" src="/mi15/prd/prdImgDesc.gs?prdid=1066284526&amp;prdGbnCd=00" scrolling="no"></iframe>`
+    <script>var d = {"prdDescUrl":"/prd/prdDesc.gs?prdid=1066284526","prdImgDescd":${JSON.stringify(descd)},"topFlg":"N"};</script>`
 
   it('썸네일은 1000px 로 교체', () => {
     expect(extractGsThumb(html)).toBe('https://asset.m-gs.kr/prod/1066284526/1/1000')
   })
 
-  it('상세 iframe 절대 URL', () => {
-    expect(extractGsDescUrl(html)).toBe(
-      'https://www.gsshop.com/mi15/prd/prdImgDesc.gs?prdid=1066284526&prdGbnCd=00',
-    )
+  it('기술서 HTML 은 JSON 문자열을 풀어서 반환', () => {
+    expect(extractGsDescHtml(html)).toBe(descd)
+    expect(extractGsDescHtml('<html>없음</html>')).toBeNull()
+  })
+
+  it('상세 페이지 절대 URL', () => {
+    expect(extractGsDescUrl(html)).toBe('https://www.gsshop.com/prd/prdDesc.gs?prdid=1066284526')
+  })
+
+  it('지연 로딩 data-src 와 src 를 순서대로', () => {
+    expect(extractGsDetail(extractGsDescHtml(html)!).map((d) => d.url)).toEqual([
+      'https://jjack333.cafe24.com/cj_none.jpg',
+      'https://jjack333.cafe24.com/CJ_cheiljedang/detail_page/210418.jpg',
+    ])
   })
 
   it('상세 이미지는 순서대로, 주석·상대경로·중복 제외', () => {
