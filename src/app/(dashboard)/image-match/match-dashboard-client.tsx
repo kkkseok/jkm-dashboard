@@ -933,8 +933,6 @@ function PairSheetBody({
     gs: latest.gsDetail.map((d): Shot => ({ url: d.url, changed: !!d.changed })),
   }
   const changedCount = full ? full.cj.filter((s) => s.changed).length + full.gs.filter((s) => s.changed).length : 0
-  // 전체 이미지는 근거로 충분하면 접어 둔다 — 근거가 없는 차이가 있거나 볼 근거가 아예 없으면 펼친다.
-  const fullOpen = numbered.length === 0 || numbered.some(({ d }) => (d.cjEvidence?.length ?? 0) + (d.gsEvidence?.length ?? 0) === 0)
 
   return (
     <>
@@ -1049,10 +1047,10 @@ function PairSheetBody({
               )}
             </section>
 
-            {/* 전체 이미지 — 근거로 충분하면 접어 둔다 */}
+            {/* 전체 이미지 — 전체를 바로 훑어볼 수 있게 기본으로 펼친다(사용자 요청 2026-11-27). 필요하면 접는다 */}
             {latest && full ? (
               <Fold
-                defaultOpen={fullOpen}
+                defaultOpen
                 title={
                   <>
                     전체 상세 이미지 — CJ {full.cj.length}장 · GS {full.gs.length}장
