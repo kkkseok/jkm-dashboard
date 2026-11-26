@@ -90,7 +90,7 @@ function locateHeaders(
       kind: 'header_missing',
       excelRowIndex: 1,
       field: null,
-      message: `필수 헤더 누락: ${missing.map((m) => `"${m.header}"`).join(', ')}. 첫 행에 ${PRODUCT_FIXED_HEADER_MAP.map((m) => `"${m.header}"`).join(' / ')} 4개 고정 컬럼이 모두 있어야 합니다.`,
+      message: `필수 헤더 누락: ${missing.map((m) => `"${m.header}"`).join(', ')}. 첫 행에 ${PRODUCT_FIXED_HEADER_MAP.map((m) => `"${m.header}"`).join(' / ')} 4개 고정 열이 모두 있어야 합니다.`,
     })
     return null
   }
@@ -100,7 +100,7 @@ function locateHeaders(
       kind: 'no_channel_column',
       excelRowIndex: 1,
       field: null,
-      message: '채널 컬럼이 하나도 없습니다. 고정 4컬럼 외에 채널명 헤더 (예: GSshop / CJ온스타일) 가 최소 1개 필요합니다.',
+      message: '채널 열이 하나도 없습니다. 고정 4개 열 외에 채널명 열 (예: GSshop / CJ온스타일) 이 최소 1개 필요합니다.',
     })
     return null
   }

@@ -165,12 +165,12 @@ export function ProductImportDialog({
 
       setStage({ kind: "done", result, total })
       toast.success(
-        `import 완료 (성공 ${result.successCount} · 건너뜀 ${result.skippedCount} · 실패 ${result.failedCount})`,
+        `일괄 등록 완료 (성공 ${result.successCount} · 건너뜀 ${result.skippedCount} · 실패 ${result.failedCount})`,
       )
       onSaved?.()
     } catch (err) {
       const message = err instanceof Error ? err.message : "알 수 없는 오류"
-      toast.error(`import 실패: ${message}`)
+      toast.error(`일괄 등록 실패: ${message}`)
       // preview 로 복귀
       setStage({ kind: "preview", file: stage.file, parsed: stage.parsed })
       setParseError(message)
@@ -279,17 +279,17 @@ export function ProductImportDialog({
               </p>
               <ul className="mt-2 list-disc space-y-1 pl-5">
                 <li>
-                  Wide 양식: 첫 행 = 고정 4헤더 (사방넷코드 / 브랜드명 / 상품명
-                  / 구분) + 채널 컬럼들
+                  가로 양식: 첫 행에 고정 4개 열 (사방넷코드 / 브랜드명 / 상품명
+                  / 구분) + 채널 열들
                 </li>
                 <li>
-                  채널 컬럼은 가변 — 헤더 텍스트가 곧 채널명. 비어있는 채널
-                  칸은 자동 스킵
+                  채널 열은 자유롭게 추가 — 첫 행의 이름이 곧 채널명. 비어 있는 채널
+                  칸은 자동으로 건너뜀
                 </li>
                 <li>&quot;구분&quot; 값은 &quot;단품&quot; 또는 &quot;복합&quot;</li>
-                <li>(사방넷, 채널) 페어와 상품코드는 시스템 전체 UNIQUE</li>
-                <li>같은 파일 안 페어 또는 상품코드 중복 시 첫 행만 채택</li>
-                <li>DB 와의 중복은 기본 건너뜀 (다음 단계에서 upsert 토글 가능)</li>
+                <li>(사방넷코드, 채널) 조합과 상품코드는 서로 겹칠 수 없음</li>
+                <li>같은 파일 안에서 조합이나 상품코드가 겹치면 첫 행만 반영</li>
+                <li>이미 등록된 것과 겹치면 기본은 건너뜀 (다음 단계에서 덮어쓰기 선택 가능)</li>
               </ul>
             </div>
 
@@ -464,7 +464,7 @@ function PreviewStage({
               <AlertTitle>신규 채널 {detectedNew.length}개 감지</AlertTitle>
               <AlertDescription>
                 이 채널들은 시스템에 등록되지 않은 채널입니다. 오타가 아닌지
-                확인하세요. 진행 시 product_master 에 그대로 저장되지만, 채널
+                확인하세요. 진행하면 상품에는 그대로 저장되지만, 채널
                 마스터에는 자동 추가되지 않으므로 채널 탭에서 별도 등록이
                 필요합니다.{" "}
                 <span className="font-mono text-xs">
@@ -509,7 +509,7 @@ function PreviewStage({
             onClick={() => setShowErrors((v) => !v)}
             className="mt-1 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
           >
-            {showErrors ? "에러 상세 닫기" : "에러 상세 보기"}
+            {showErrors ? "오류 상세 닫기" : "오류 상세 보기"}
           </button>
         )}
         {showErrors && parsed.errors.length > 0 && (
@@ -612,7 +612,7 @@ function PreviewStage({
           checked={upsert}
           onCheckedChange={(checked) => onUpsertChange(checked === true)}
         />
-        중복 코드는 기존 데이터로 덮어쓰기 (upsert)
+        이미 등록된 코드는 이 파일 내용으로 덮어쓰기
       </Label>
 
       <DialogFooter>

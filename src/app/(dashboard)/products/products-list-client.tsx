@@ -248,7 +248,7 @@ export function ProductsListClient({
     try {
       const rows = await getProductsBySabangnet(r.sabangnetCode)
       if (rows.length === 0) {
-        toast.error("이 사방넷의 데이터가 사라졌습니다 (다른 사용자가 삭제?). 새로고침 후 다시 시도하세요.")
+        toast.error("이 사방넷코드의 상품이 더 이상 없습니다. 다른 사람이 삭제했을 수 있으니 새로고침 후 다시 시도해 주세요.")
         return
       }
       // 그룹의 메타는 첫 행 기준 (saveProductGroup 가 전체 행에 동일 메타 적용)
@@ -266,7 +266,7 @@ export function ProductsListClient({
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : "알 수 없는 오류"
-      toast.error(`로드 실패: ${message}`)
+      toast.error(`불러오지 못했습니다: ${message}`)
     } finally {
       setEditLoading(false)
     }
@@ -393,7 +393,7 @@ export function ProductsListClient({
       },
       {
         id: "actions",
-        header: () => <span className="sr-only">액션</span>,
+        header: () => <span className="sr-only">관리</span>,
         enableSorting: false,
         cell: ({ row }) => {
           const r = row.original
@@ -471,7 +471,7 @@ export function ProductsListClient({
           </Button>
           <Button variant="outline" onClick={() => setImportOpen(true)}>
             <UploadIcon />
-            엑셀 import
+            엑셀 일괄 등록
           </Button>
           <Button onClick={() => setAddOpen(true)}>
             <PlusIcon />
@@ -488,9 +488,9 @@ export function ProductsListClient({
             : "아직 등록된 상품이 없습니다"}
         </AlertTitle>
         <AlertDescription>
-          한 사방넷코드가 여러 채널에 등록될 수 있습니다 (Wide 양식). 행 클릭
-          시 그 사방넷의 모든 채널 행을 한 번에 편집합니다. 상품코드는 시스템
-          전체에서 고유(UNIQUE)입니다.
+          한 사방넷코드가 여러 채널에 등록될 수 있습니다. 행을 누르면
+          그 사방넷코드의 모든 채널을 한 번에 편집합니다. 상품코드는
+          다른 상품과 겹칠 수 없습니다.
         </AlertDescription>
       </Alert>
 
@@ -636,7 +636,7 @@ export function ProductsListClient({
           <div className="space-y-3 border-dashed p-12 text-center text-sm text-muted-foreground">
             <p className="text-base">아직 등록된 상품이 없습니다</p>
             <p>
-              초기 등록은 엑셀 import 가 빠릅니다. 양식을 다운받아 작성한 뒤
+              처음 등록할 때는 엑셀 일괄 등록이 빠릅니다. 양식을 내려받아 작성한 뒤
               업로드하세요.
             </p>
             <div className="flex flex-wrap justify-center gap-2">
@@ -646,7 +646,7 @@ export function ProductsListClient({
               </Button>
               <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
                 <UploadIcon />
-                엑셀 import
+                엑셀 일괄 등록
               </Button>
               <Button size="sm" onClick={() => setAddOpen(true)}>
                 <PlusIcon />
@@ -769,7 +769,7 @@ export function ProductsListClient({
       {/* 그룹 로드 중 토스트 */}
       {editLoading && (
         <span aria-live="polite" className="sr-only">
-          상품 그룹 로드 중…
+          상품 정보를 불러오는 중…
         </span>
       )}
 

@@ -69,7 +69,7 @@ export function parseCalAmountRows(allRows: unknown[][]): ParsedCalAmountUpload 
 
     const amount = readNum(r, COL_EXTRA_SETTLEMENT)
     if (amount == null) {
-      skipped.push({ row: excelRow, reason: '후정산금 파싱 실패' })
+      skipped.push({ row: excelRow, reason: '후정산금이 숫자가 아님' })
       continue
     }
 

@@ -77,7 +77,7 @@ export function UploadCard<T>({
       setParsed(result)
       setPhase("preview")
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "엑셀 파싱에 실패했습니다")
+      setErrorMsg(err instanceof Error ? err.message : "엑셀 파일을 읽지 못했습니다")
       setPhase("error")
     }
   }
@@ -92,7 +92,7 @@ export function UploadCard<T>({
       toast.success(doneToast(parsed))
       onDone()
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "DB 적재 중 오류가 발생했습니다")
+      setErrorMsg(err instanceof Error ? err.message : "등록 중 오류가 발생했습니다")
       setPhase("error")
     }
   }
@@ -174,7 +174,7 @@ export function UploadCard<T>({
         )}
 
         {phase === "parsing" && (
-          <p className="text-sm text-muted-foreground">파싱 중…</p>
+          <p className="text-sm text-muted-foreground">파일 읽는 중…</p>
         )}
 
         {phase === "preview" && parsed && (
@@ -211,7 +211,7 @@ export function UploadCard<T>({
               />
             </div>
             <p className="text-right text-xs tabular-nums text-muted-foreground">
-              {koInt.format(progress.done)} / {koInt.format(progress.total)}건 적재 중…
+              {koInt.format(progress.done)} / {koInt.format(progress.total)}건 등록 중…
             </p>
           </div>
         )}
@@ -219,7 +219,7 @@ export function UploadCard<T>({
         {phase === "done" && (
           <Alert>
             <AlertTitle>완료</AlertTitle>
-            <AlertDescription>DB에 적재되었습니다.</AlertDescription>
+            <AlertDescription>등록했습니다.</AlertDescription>
           </Alert>
         )}
 
@@ -237,7 +237,7 @@ export function UploadCard<T>({
           onClick={handleUpload}
           disabled={phase !== "preview"}
         >
-          {phase === "uploading" ? "적재 중…" : "DB에 적재"}
+          {phase === "uploading" ? "등록 중…" : "등록"}
         </Button>
       </CardFooter>
     </Card>

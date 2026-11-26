@@ -105,7 +105,7 @@ export function CalAmountUploadDialog({
       parsed = await parseCalAmountUpload(file)
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "엑셀 파싱에 실패했습니다"
+        err instanceof Error ? err.message : "엑셀 파일을 읽지 못했습니다"
       setErrorMsg(message)
       setPhase("error")
       return
@@ -158,7 +158,7 @@ export function CalAmountUploadDialog({
     toast.success(
       `${koInt.format(insertedCount)}건 추가됨` +
         (parsed.skipped.length > 0
-          ? ` (${koInt.format(parsed.skipped.length)}건 스킵)`
+          ? ` (${koInt.format(parsed.skipped.length)}건 건너뜀)`
           : ""),
     )
   }
@@ -187,8 +187,8 @@ export function CalAmountUploadDialog({
         <DialogHeader>
           <DialogTitle>엑셀 대량 업로드</DialogTitle>
           <DialogDescription>
-            기존 형식의 엑셀(1행 헤더 = A:상품코드, B:후정산금)을 업로드하세요.
-            추가되는 데이터는 최신으로 테이블 최상단에 표시됩니다. 비밀번호(1111)
+            첫 행이 제목(A열 상품코드, B열 후정산금)인 엑셀을 올려 주세요.
+            추가한 내용은 최신 값으로 목록 맨 위에 표시됩니다. 비밀번호(1111)
             보호 파일도 자동 처리됩니다.
           </DialogDescription>
         </DialogHeader>
@@ -251,7 +251,7 @@ export function CalAmountUploadDialog({
             )}
 
             {phase === "parsing" && (
-              <p className="text-sm text-muted-foreground">파싱 중…</p>
+              <p className="text-sm text-muted-foreground">파일 읽는 중…</p>
             )}
 
             {(phase === "uploading" || phase === "done") && total > 0 && (
@@ -279,7 +279,7 @@ export function CalAmountUploadDialog({
                 <AlertDescription>
                   {koInt.format(processed)}건이 추가되었습니다.
                   {skipped.length > 0 &&
-                    ` ${koInt.format(skipped.length)}건은 스킵되었습니다.`}
+                    ` ${koInt.format(skipped.length)}건은 건너뛰었습니다.`}
                 </AlertDescription>
               </Alert>
             )}
@@ -295,7 +295,7 @@ export function CalAmountUploadDialog({
             {(phase === "done" || phase === "error") && skipped.length > 0 && (
               <div className="rounded-md border bg-muted/30 p-2">
                 <p className="mb-1 text-xs font-medium">
-                  스킵된 행 {koInt.format(skipped.length)}건
+                  건너뛴 행 {koInt.format(skipped.length)}건
                 </p>
                 <ul className="max-h-32 space-y-0.5 overflow-y-auto text-xs text-muted-foreground">
                   {skipped.slice(0, 10).map((s) => (

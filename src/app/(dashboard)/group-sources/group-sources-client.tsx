@@ -38,7 +38,7 @@ export function GroupSourcesClient({ status }: { status: GroupSourceStatus }) {
           upload={uploadProductMasterData}
           warnings={(p) => p.warnings}
           doneToast={(p) =>
-            `상품 마스터 ${koInt.format(p.stats.marketCount)}건 적재 완료`
+            `상품 마스터 ${koInt.format(p.stats.marketCount)}건 등록 완료`
           }
           onDone={() => router.refresh()}
           renderPreview={(p) => (
@@ -62,7 +62,7 @@ export function GroupSourcesClient({ status }: { status: GroupSourceStatus }) {
                 className="text-xs text-muted-foreground"
                 title={p.layout.channelNames.join(", ")}
               >
-                인식 · 헤더 {p.layout.headerRow}행 · 채널{" "}
+                읽은 위치 · 제목 행 {p.layout.headerRow}행 · 채널{" "}
                 {koInt.format(p.layout.channelNames.length)}종(
                 {p.layout.channelRange.first}~{p.layout.channelRange.last}) · 묶음 기준{" "}
                 {p.layout.bundleFormulaLabel} · {p.layout.cols.bundleFormula}열
@@ -79,7 +79,7 @@ export function GroupSourcesClient({ status }: { status: GroupSourceStatus }) {
           parse={parseProductInfo}
           upload={uploadProductInfoData}
           warnings={(p) => p.warnings}
-          doneToast={(p) => `ERP 코드 ${koInt.format(p.stats.erpCount)}건 적재 완료`}
+          doneToast={(p) => `ERP 코드 ${koInt.format(p.stats.erpCount)}건 등록 완료`}
           onDone={() => router.refresh()}
           renderPreview={(p) => (
             <div className="space-y-1">

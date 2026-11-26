@@ -411,7 +411,7 @@ export async function saveProductGroup(
   } catch (err) {
     if (isUniqueViolation(err)) {
       throw new Error(
-        '저장 실패 — 사방넷×채널 페어 또는 상품코드 중복입니다',
+        '저장 실패 — 사방넷코드×채널 조합 또는 상품코드가 이미 등록돼 있습니다',
       )
     }
     throw err
@@ -442,7 +442,7 @@ export async function createProduct(input: ProductInput): Promise<ProductRow> {
   } catch (err) {
     if (isUniqueViolation(err)) {
       throw new Error(
-        `이미 등록된 페어입니다: (사방넷 "${v.sabangnetCode}", 채널 "${v.channelName}") 또는 상품코드 "${v.productCode}" 중복`,
+        `이미 등록된 조합입니다: (사방넷 "${v.sabangnetCode}", 채널 "${v.channelName}") 또는 상품코드 "${v.productCode}" 중복`,
       )
     }
     throw err
@@ -477,7 +477,7 @@ export async function updateProduct(
       .returning()
 
     if (!row) {
-      throw new Error(`상품을 찾을 수 없습니다 (id=${id})`)
+      throw new Error('상품을 찾을 수 없습니다. 새로고침 후 다시 시도해 주세요.')
     }
 
     revalidatePath(PATH)
@@ -857,7 +857,7 @@ export async function renameChannel(
       .from(productChannels)
       .where(eq(productChannels.id, id))
       .limit(1)
-    if (!existing) throw new Error(`채널을 찾을 수 없습니다 (id=${id})`)
+    if (!existing) throw new Error('채널을 찾을 수 없습니다. 새로고침 후 다시 시도해 주세요.')
 
     if (existing.name === next) {
       return existing
@@ -894,7 +894,7 @@ export async function renameChannel(
     if (dupRows.length > 0) {
       const sample = dupRows.slice(0, 5).map((r) => r.sabangnetCode).join(', ')
       throw new Error(
-        `대상 채널 "${next}" 로 변경 시 ${dupRows.length}건의 사방넷코드가 충돌합니다 (예: ${sample}). product_master 에서 먼저 정리하세요.`,
+        `대상 채널 "${next}" 로 변경 시 ${dupRows.length}건의 사방넷코드가 충돌합니다 (예: ${sample}). 상품 마스터에서 먼저 정리하세요.`,
       )
     }
 
@@ -932,7 +932,7 @@ export async function deleteChannel(
     .from(productChannels)
     .where(eq(productChannels.id, id))
     .limit(1)
-  if (!existing) throw new Error(`채널을 찾을 수 없습니다 (id=${id})`)
+  if (!existing) throw new Error('채널을 찾을 수 없습니다. 새로고침 후 다시 시도해 주세요.')
 
   const [usage] = await db
     .select({ count: sql<number>`count(*)::int` })

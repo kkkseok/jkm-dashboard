@@ -130,8 +130,8 @@ export function ChannelsListClient({ initial }: ChannelsListClientProps) {
         <div className="space-y-1">
           <h2 className="text-xl font-semibold">채널 마스터</h2>
           <p className="text-sm text-muted-foreground">
-            상품 양식·드롭다운에 노출되는 판매 채널 목록입니다. 이름 변경 시
-            product_master 의 채널명도 함께 일괄 변경됩니다.
+            엑셀 양식과 상품 입력 화면에 나오는 판매 채널 목록입니다. 이름을 바꾸면
+            등록된 상품의 채널명도 함께 바뀝니다.
           </p>
         </div>
         <Button onClick={() => setAddOpen(true)}>
@@ -143,7 +143,7 @@ export function ChannelsListClient({ initial }: ChannelsListClientProps) {
       <Alert>
         <AlertTitle>등록된 채널 {initial.length}개</AlertTitle>
         <AlertDescription>
-          채널명 변경은 트랜잭션으로 product_master 의 모든 행에 cascade
+          채널명을 바꾸면 그 채널을 쓰는 모든 상품에 함께
           적용됩니다. 사용 중인 채널은 삭제할 수 없습니다.
         </AlertDescription>
       </Alert>
@@ -164,7 +164,7 @@ export function ChannelsListClient({ initial }: ChannelsListClientProps) {
                   <TableHead className="w-24 text-right">순서</TableHead>
                   <TableHead>채널명</TableHead>
                   <TableHead className="w-32 text-right">사용 상품 수</TableHead>
-                  <TableHead className="w-32 text-right">액션</TableHead>
+                  <TableHead className="w-32 text-right">관리</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -199,7 +199,7 @@ export function ChannelsListClient({ initial }: ChannelsListClientProps) {
           <DialogHeader>
             <DialogTitle>채널 추가</DialogTitle>
             <DialogDescription>
-              새 판매 채널을 추가합니다. 채널명은 시스템 전체에서 유일해야
+              새 판매 채널을 추가합니다. 이미 있는 채널명과는 달라야
               합니다.
             </DialogDescription>
           </DialogHeader>
@@ -268,7 +268,7 @@ export function ChannelsListClient({ initial }: ChannelsListClientProps) {
               {deleteTarget && (
                 <>
                   &quot;{deleteTarget.name}&quot; 채널을 삭제하시겠습니까?
-                  <br />이 채널은 양식 다운로드 / 폼 옵션에서 제외됩니다.
+                  <br />이 채널은 엑셀 양식과 상품 입력 화면의 채널 선택에서 빠집니다.
                 </>
               )}
             </DialogDescription>

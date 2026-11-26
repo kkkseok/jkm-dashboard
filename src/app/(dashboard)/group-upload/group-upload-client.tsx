@@ -130,7 +130,7 @@ export function GroupUploadClient({
     try {
       const lines = await parseNoMapping(file)
       if (lines.length === 0) {
-        throw new Error("마켓코드가 있는 주문 행을 찾지 못했습니다 (no_mapping 형식 확인)")
+        throw new Error("마켓코드가 있는 주문 행을 찾지 못했습니다. 미매핑 주문 파일(no_mapping.xlsx)이 맞는지 확인해 주세요.")
       }
       setPhase("resolving")
       const res = await resolveGroupUpload(lines)
@@ -177,7 +177,7 @@ export function GroupUploadClient({
         <Alert variant="destructive">
           <AlertTitle>소스 데이터가 비어 있습니다</AlertTitle>
           <AlertDescription>
-            먼저 <span className="font-medium">그룹 매핑 소스</span> 메뉴에서 상품 마스터·ERP 코드를 적재하세요.
+            먼저 <span className="font-medium">그룹 매핑 소스</span> 메뉴에서 상품 마스터·ERP 코드를 등록하세요.
           </AlertDescription>
         </Alert>
       )}
@@ -230,7 +230,7 @@ export function GroupUploadClient({
             </div>
           )}
 
-          {phase === "parsing" && <p className="text-sm text-muted-foreground">파싱 중…</p>}
+          {phase === "parsing" && <p className="text-sm text-muted-foreground">파일 읽는 중…</p>}
           {phase === "resolving" && <p className="text-sm text-muted-foreground">매핑 중…</p>}
 
           {phase === "ready" && result && (

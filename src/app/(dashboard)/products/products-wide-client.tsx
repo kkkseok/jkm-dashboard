@@ -244,7 +244,7 @@ export function ProductsWideClient({
       const rows = await getProductsBySabangnet(sabangnetCode)
       if (rows.length === 0) {
         toast.error(
-          "이 사방넷의 데이터가 사라졌습니다 (다른 사용자가 삭제?). 새로고침 후 다시 시도하세요.",
+          "이 사방넷코드의 상품이 더 이상 없습니다. 다른 사람이 삭제했을 수 있으니 새로고침 후 다시 시도해 주세요.",
         )
         return
       }
@@ -262,7 +262,7 @@ export function ProductsWideClient({
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : "알 수 없는 오류"
-      toast.error(`로드 실패: ${message}`)
+      toast.error(`불러오지 못했습니다: ${message}`)
     } finally {
       setEditLoading(false)
     }
@@ -352,7 +352,7 @@ export function ProductsWideClient({
           </Button>
           <Button variant="outline" onClick={() => setImportOpen(true)}>
             <UploadIcon />
-            엑셀 import
+            엑셀 일괄 등록
           </Button>
           <Button onClick={() => setAddOpen(true)}>
             <PlusIcon />
@@ -369,9 +369,9 @@ export function ProductsWideClient({
             : "아직 등록된 상품이 없습니다"}
         </AlertTitle>
         <AlertDescription>
-          엑셀 입력 양식과 동일한 가로 펼침 view 입니다. 한 행 = 한 사방넷코드,
-          각 채널 컬럼에 그 채널의 상품코드가 표시됩니다. 빈 셀(—)은 해당 채널에
-          미등록. 행 또는 셀 클릭 시 그 사방넷의 모든 채널을 한 번에 편집합니다.
+          엑셀 입력 양식과 같은 가로 펼침 화면입니다. 한 행 = 한 사방넷코드,
+          채널 열마다 그 채널의 상품코드가 표시됩니다. 빈 칸(—)은 해당 채널에
+          등록되지 않은 것입니다. 행이나 칸을 누르면 그 사방넷코드의 모든 채널을 한 번에 편집합니다.
         </AlertDescription>
       </Alert>
 
@@ -517,7 +517,7 @@ export function ProductsWideClient({
           <div className="space-y-3 border-dashed p-12 text-center text-sm text-muted-foreground">
             <p className="text-base">아직 등록된 상품이 없습니다</p>
             <p>
-              초기 등록은 엑셀 import 가 빠릅니다. 양식을 다운받아 작성한 뒤
+              처음 등록할 때는 엑셀 일괄 등록이 빠릅니다. 양식을 내려받아 작성한 뒤
               업로드하세요.
             </p>
             <div className="flex flex-wrap justify-center gap-2">
@@ -531,7 +531,7 @@ export function ProductsWideClient({
                 onClick={() => setImportOpen(true)}
               >
                 <UploadIcon />
-                엑셀 import
+                엑셀 일괄 등록
               </Button>
               <Button size="sm" onClick={() => setAddOpen(true)}>
                 <PlusIcon />
@@ -588,7 +588,7 @@ export function ProductsWideClient({
                     등록일
                   </TableHead>
                   <TableHead className="whitespace-nowrap">
-                    <span className="sr-only">액션</span>
+                    <span className="sr-only">관리</span>
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -729,7 +729,7 @@ export function ProductsWideClient({
 
       {editLoading && (
         <span aria-live="polite" className="sr-only">
-          상품 그룹 로드 중…
+          상품 정보를 불러오는 중…
         </span>
       )}
 
@@ -751,8 +751,8 @@ export function ProductsWideClient({
                   이 삭제됩니다.
                   <br />
                   이 상품은 모든 채널의 마이너스 분석 단품/복합 매칭에서
-                  제외됩니다. 한 채널만 지우려면 상세(detail) view 또는 편집
-                  Dialog 에서 해당 채널을 삭제하세요.
+                  제외됩니다. 한 채널만 지우려면 상세 보기나 편집
+                  창에서 해당 채널을 삭제하세요.
                 </>
               )}
             </DialogDescription>

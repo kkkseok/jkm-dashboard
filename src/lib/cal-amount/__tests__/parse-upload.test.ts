@@ -48,8 +48,8 @@ describe('parseCalAmountRows', () => {
     const { valid, skipped } = parseCalAmountRows(rows)
     expect(valid).toHaveLength(0)
     expect(skipped).toEqual([
-      { row: 2, reason: '후정산금 파싱 실패' },
-      { row: 3, reason: '후정산금 파싱 실패' },
+      { row: 2, reason: '후정산금이 숫자가 아님' },
+      { row: 3, reason: '후정산금이 숫자가 아님' },
     ])
   })
 

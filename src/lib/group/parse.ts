@@ -112,8 +112,8 @@ export function detectMasterLayout(ws: XLSX.WorkSheet): ProductMasterLayout {
   const idx = found as Record<ProductMasterHeaderKey, number>
   if (idx.productName - idx.sabangnetCode < 2) {
     throw new Error(
-      `상품 마스터 채널 컬럼이 없습니다 — "${PM.headers.sabangnetCode}"(${col(idx.sabangnetCode)}) 와 ` +
-        `"${PM.headers.productName}"(${col(idx.productName)}) 사이에 채널 컬럼이 있어야 합니다.`,
+      `상품 마스터 채널 열이 없습니다 — "${PM.headers.sabangnetCode}"(${col(idx.sabangnetCode)}) 와 ` +
+        `"${PM.headers.productName}"(${col(idx.productName)}) 사이에 채널 열이 있어야 합니다.`,
     )
   }
 

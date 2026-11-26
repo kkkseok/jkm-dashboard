@@ -312,7 +312,7 @@ export function CalAmountListClient({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label={`${r.productCode} (id ${r.id}) 삭제`}
+                aria-label={`${r.productCode} 이력 삭제`}
                 onClick={() => setDeleteTarget(r)}
               >
                 <Trash2Icon />
@@ -580,9 +580,9 @@ export function CalAmountListClient({
             <DialogDescription>
               {deleteTarget && (
                 <>
-                  &quot;{deleteTarget.productCode}&quot; (이력 id{" "}
-                  {deleteTarget.id}, {formatKRW(deleteTarget.extraSettlement)}원)
-                  을(를) 삭제하시겠습니까?
+                  &quot;{deleteTarget.productCode}&quot; (
+                  {formatKRW(deleteTarget.extraSettlement)}원)
+                  이력을 삭제하시겠습니까?
                   <br />
                   같은 상품코드의 다른 이력 행은 영향 없습니다. 이 행이 최신
                   값이었다면 그 다음 행이 분석 시 계산에 사용됩니다.
