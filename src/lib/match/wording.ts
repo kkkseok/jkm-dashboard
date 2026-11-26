@@ -2,8 +2,8 @@
  * 화면 표시용 문구 — 수집·판정 스크립트가 남긴 오류 원문을 운영자가 읽을 말로 바꾼다 (순수 함수).
  *
  * 원문에는 HTTP 상태·내부 필드 이름·실행 도구 이름이 섞여 있어 화면에 그대로 내보내지 않는다.
- * 원문 자체는 DB(match_check.fetch_error, match_run.error, match_status_log.note)에 그대로 남고,
- * 화면에서는 접힌 "오류 원문"으로만 볼 수 있다.
+ * 원문 자체는 DB(match_check.fetch_error, match_run.error, match_status_log.note)에 그대로 남는다 — 화면에는 내보내지 않으므로
+ * 원인을 찾을 때는 DB 나 실행 로그에서 본다(사용자 요청 2026-11-27).
  */
 
 import { JUDGE_FAIL_NOTE } from './gate'

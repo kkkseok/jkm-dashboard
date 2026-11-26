@@ -396,16 +396,6 @@ export function MatchDashboardClient({ data, stale }: Props) {
 
 // ── 실행 현황 경고 ─────────────────────────────────────
 
-/** 안내 문구 아래에 접어 두는 오류 원문 — 평소엔 가리고, 원인을 찾을 때만 펼친다. */
-function RawError({ text }: { text: string }) {
-  return (
-    <details className="mt-1 text-xs opacity-80">
-      <summary className="cursor-pointer">오류 원문</summary>
-      <p className="mt-1 break-all">{text}</p>
-    </details>
-  )
-}
-
 function BatchStatus({ data, stale }: Props) {
   const run = data.lastRun
   const hoursSinceSuccess = data.hoursSinceSuccess
@@ -417,7 +407,6 @@ function BatchStatus({ data, stale }: Props) {
           <AlertTitle>마지막 실행이 정상적으로 끝나지 않았습니다</AlertTitle>
           <AlertDescription>
             {friendlyRunError(run.error)}
-            <RawError text={run.error} />
           </AlertDescription>
         </Alert>
       )}
@@ -1006,7 +995,6 @@ function PairSheetBody({
                 <AlertDescription>
                   {friendlyFetchError(detail.lastError)}
                   {latest && " 아래는 그 전에 가져온 이미지입니다."}
-                  <RawError text={detail.lastError} />
                 </AlertDescription>
               </Alert>
             )}
