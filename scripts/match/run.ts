@@ -4,6 +4,8 @@
  * 흐름: match_pair 전체 → CJ/GS 페이지 수집 → 이미지 해시 → GS 공통 이미지 판별
  *       → 판정 기준(마지막 AI 판정 check) 대비 변경 여부 → 바뀐 쌍만 `claude -p` 판정(./judge.ts)
  *       → match_check 기록(토큰 사용량 포함) · 상태 전이 · match_run 합계.
+ * 기록은 **쌍마다 판정이 끝나는 즉시** 한다 — 실행이 중간에 끊겨도(시간 제한·한도) 끝난 판정은 남고,
+ * match_run 의 to_judge / judged 가 화면의 진행 표시가 된다.
  * 설계: _workspace/01_design_image_match.md
  *
  * 실행: `pnpm tsx scripts/match/run.ts [--only 자재코드,…] [--full] [--no-judge] [--judge-model sonnet] [--judge-limit 30]`
@@ -413,93 +415,12 @@ async function processRun(db: Db, runId: number, pairs: PairRow[], opts: Opts) {
     )
   }
 
-  // 4) AI 판정 — 급한 쌍부터(gate.sortJudgeQueue) 1회 상한까지, 동시 JUDGE_CONCURRENCY.
-  //    한도·인증 오류가 나면 남은 쌍은 다음 실행으로 미룬다.
-  const toJudge = opts.judge ? entries.filter((e) => e.decision.kind === 'judge') : []
-  // 마지막 판정 이후 판정 실패 횟수 — 계속 실패하는 쌍은 대기열 맨 뒤로 보낸다.
-  const failLogs = toJudge.length
-    ? await db
-        .select({ pairId: matchStatusLog.pairId, createdAt: matchStatusLog.createdAt })
-        .from(matchStatusLog)
-        .where(
-          and(
-            inArray(matchStatusLog.pairId, toJudge.map((e) => e.p.id)),
-            eq(matchStatusLog.actor, 'batch'),
-            like(matchStatusLog.note, `${JUDGE_FAIL_NOTE}%`),
-          ),
-        )
-    : []
-  const queue = sortJudgeQueue(
-    toJudge.map((e) => ({
-      e,
-      id: e.p.id,
-      status: e.status,
-      reason: (e.decision as Extract<GateDecision, { kind: 'judge' }>).reason,
-      lastJudgedAt: e.p.lastJudgedAt,
-      recentFailures: failLogs.filter(
-        (l) => l.pairId === e.p.id && (!e.p.lastJudgedAt || l.createdAt > e.p.lastJudgedAt),
-      ).length,
-    })),
-  ).map((q) => q.e)
-  const queued = queue.length
-  let stopJudging = false
-  /** AI 호출 수 — 상한은 실제 호출만 센다(판정 불가로 건너뛴 쌍은 세지 않는다). */
-  let calls = 0
-  async function judgeWorker() {
-    while (!stopJudging && calls < opts.judgeLimit) {
-      const e = queue.shift()
-      if (!e) break
-      calls++
-      try {
-        e.judge = await judgePair(
-          {
-            cjThumbUrl: e.r.cjThumbUrl,
-            gsThumbUrl: e.r.gsThumbUrl,
-            gsPageUrl: e.p.gsUrl,
-            cjDetail: e.r.cjDetail,
-            gsDetail: e.gsDetail.filter((d) => !d.common),
-          },
-          opts.judgeModel,
-        )
-        // 바뀐 영역만 새 판정 — 안 바뀐 영역은 직전 판정 유지(AI 판정 흔들림 방지)
-        e.judge.verdict = mergeVerdict(e.prevVerdict, e.judge.verdict, e.changes)
-        const v = e.judge.verdict
-        const a = e.judge.align
-        console.log(
-          `  ${e.p.matCode} 판정 ${v.thumbnail}/${v.detail} (${Math.round(e.judge.usage.judgeMs / 1000)}s` +
-            (a ? ` · 상세 조각 ${a.pieces}개, 전송 ${Math.round(((a.cjSentPx + a.gsSentPx) / (a.cjTotalPx + a.gsTotalPx)) * 100)}%` : '') +
-            (e.judge.verify
-              ? e.judge.verify.failed
-                ? ` · 재검증 실패: ${e.judge.verify.failed}`
-                : ` · 재검증 확인 ${e.judge.verify.confirmed}/엇갈림 ${e.judge.verify.rejected}/불가 ${e.judge.verify.unsure}`
-              : '') +
-            ')',
-        )
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        if (err instanceof JudgeSkipError) {
-          // 다시 시도해도 같은 입력 문제 → 상한을 쓰지 않고 판정 보류로 기록한다.
-          calls--
-          e.skipped = skippedVerdict(msg)
-          console.log(`  ${e.p.matCode} 판정 불가: ${msg.slice(0, 160)}`)
-          continue
-        }
-        tally.judgeFailed++
-        console.log(`  ${e.p.matCode} 판정 실패: ${msg.slice(0, 160)}`)
-        // 실패를 이력에 남긴다(상태는 그대로) — 화면에서 보이고, 다음 실행의 대기열 순서에 반영된다.
-        await logStatus(e.p.id, e.status, e.status, `${JUDGE_FAIL_NOTE}: ${msg}`)
-        if (/limit|quota|rate|usage|credit|overloaded|auth/i.test(msg)) stopJudging = true
-      }
-    }
-  }
-  if (queued > 0) {
-    console.log(`  판정 대기 ${queued}쌍 (모델 ${opts.judgeModel}, 1회 상한 ${opts.judgeLimit})`)
-    await Promise.all(Array.from({ length: JUDGE_CONCURRENCY }, judgeWorker))
-  }
-
-  // 5) 기록
+  // 기록 — 쌍 1개의 수집·판정 결과를 match_check 에 남기고 상태를 바꾼다. 판정이 끝나는 대로 바로 부른다.
   const sum = { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, apiEquivUsd: 0 }
-  for (const e of entries) {
+  const recorded = new Set<number>()
+  async function record(e: Entry) {
+    if (recorded.has(e.p.id)) return
+    recorded.add(e.p.id)
     const { p, r, current, judge } = e
     let status = e.status
     /** 판정 불가 결과를 상태에 반영했는지 (확인자 판정을 유지한 경우 false). */
@@ -566,6 +487,115 @@ async function processRun(db: Db, runId: number, pairs: PairRow[], opts: Opts) {
       })
       .where(eq(matchPair.id, p.id))
   }
+  /** 진행 상황을 match_run 에 반영 — 화면이 판정 중에도 몇 쌍 끝났는지 볼 수 있게. */
+  const pushProgress = () =>
+    db
+      .update(matchRun)
+      .set({
+        judged: tally.judged,
+        inputTokens: sum.inputTokens,
+        outputTokens: sum.outputTokens,
+        cacheCreationTokens: sum.cacheCreationTokens,
+        cacheReadTokens: sum.cacheReadTokens,
+        apiEquivUsd: sum.apiEquivUsd.toFixed(4),
+      })
+      .where(eq(matchRun.id, run.id))
+
+  // 4) AI 판정 — 급한 쌍부터(gate.sortJudgeQueue) 1회 상한까지, 동시 JUDGE_CONCURRENCY.
+  //    한도·인증 오류가 나면 남은 쌍은 다음 실행으로 미룬다.
+  const toJudge = opts.judge ? entries.filter((e) => e.decision.kind === 'judge') : []
+  // 마지막 판정 이후 판정 실패 횟수 — 계속 실패하는 쌍은 대기열 맨 뒤로 보낸다.
+  const failLogs = toJudge.length
+    ? await db
+        .select({ pairId: matchStatusLog.pairId, createdAt: matchStatusLog.createdAt })
+        .from(matchStatusLog)
+        .where(
+          and(
+            inArray(matchStatusLog.pairId, toJudge.map((e) => e.p.id)),
+            eq(matchStatusLog.actor, 'batch'),
+            like(matchStatusLog.note, `${JUDGE_FAIL_NOTE}%`),
+          ),
+        )
+    : []
+  const queue = sortJudgeQueue(
+    toJudge.map((e) => ({
+      e,
+      id: e.p.id,
+      status: e.status,
+      reason: (e.decision as Extract<GateDecision, { kind: 'judge' }>).reason,
+      lastJudgedAt: e.p.lastJudgedAt,
+      recentFailures: failLogs.filter(
+        (l) => l.pairId === e.p.id && (!e.p.lastJudgedAt || l.createdAt > e.p.lastJudgedAt),
+      ).length,
+    })),
+  ).map((q) => q.e)
+  const queued = queue.length
+  let stopJudging = false
+  /** AI 호출 수 — 상한은 실제 호출만 센다(판정 불가로 건너뛴 쌍은 세지 않는다). */
+  let calls = 0
+  async function judgeWorker() {
+    while (!stopJudging && calls < opts.judgeLimit) {
+      const e = queue.shift()
+      if (!e) break
+      calls++
+      try {
+        e.judge = await judgePair(
+          {
+            cjThumbUrl: e.r.cjThumbUrl,
+            gsThumbUrl: e.r.gsThumbUrl,
+            gsPageUrl: e.p.gsUrl,
+            cjDetail: e.r.cjDetail,
+            gsDetail: e.gsDetail.filter((d) => !d.common),
+          },
+          opts.judgeModel,
+        )
+        // 바뀐 영역만 새 판정 — 안 바뀐 영역은 직전 판정 유지(AI 판정 흔들림 방지)
+        e.judge.verdict = mergeVerdict(e.prevVerdict, e.judge.verdict, e.changes)
+        const v = e.judge.verdict
+        const a = e.judge.align
+        console.log(
+          `  ${e.p.matCode} 판정 ${v.thumbnail}/${v.detail} (${Math.round(e.judge.usage.judgeMs / 1000)}s` +
+            (a ? ` · 상세 조각 ${a.pieces}개, 전송 ${Math.round(((a.cjSentPx + a.gsSentPx) / (a.cjTotalPx + a.gsTotalPx)) * 100)}%` : '') +
+            (e.judge.verify
+              ? e.judge.verify.failed
+                ? ` · 재검증 실패: ${e.judge.verify.failed}`
+                : ` · 재검증 확인 ${e.judge.verify.confirmed}/엇갈림 ${e.judge.verify.rejected}/불가 ${e.judge.verify.unsure}`
+              : '') +
+            ')',
+        )
+        await record(e)
+        await pushProgress()
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (err instanceof JudgeSkipError) {
+          // 다시 시도해도 같은 입력 문제 → 상한을 쓰지 않고 판정 보류로 기록한다.
+          calls--
+          e.skipped = skippedVerdict(msg)
+          console.log(`  ${e.p.matCode} 판정 불가: ${msg.slice(0, 160)}`)
+          await record(e)
+          continue
+        }
+        tally.judgeFailed++
+        console.log(`  ${e.p.matCode} 판정 실패: ${msg.slice(0, 160)}`)
+        // 실패를 이력에 남긴다(상태는 그대로) — 화면에서 보이고, 다음 실행의 대기열 순서에 반영된다.
+        await logStatus(e.p.id, e.status, e.status, `${JUDGE_FAIL_NOTE}: ${msg}`)
+        if (/limit|quota|rate|usage|credit|overloaded|auth/i.test(msg)) stopJudging = true
+      }
+    }
+  }
+  // 판정이 필요 없는 쌍은 먼저 기록하고, 이번 실행의 판정 예정 수를 남긴다(진행 표시의 분모).
+  for (const e of entries) if (e.decision.kind !== 'judge') await record(e)
+  await db
+    .update(matchRun)
+    .set({ fetched: tally.fetched, failed: tally.failed, toJudge: Math.min(queued, opts.judgeLimit) })
+    .where(eq(matchRun.id, run.id))
+  if (queued > 0) {
+    console.log(`  판정 대기 ${queued}쌍 (모델 ${opts.judgeModel}, 1회 상한 ${opts.judgeLimit})`)
+    await Promise.all(Array.from({ length: JUDGE_CONCURRENCY }, judgeWorker))
+  }
+
+  // 5) 아직 기록하지 않은 쌍(판정 실패·상한 초과로 미룬 쌍) 기록
+  for (const e of entries) await record(e)
 
   await db
     .update(matchRun)

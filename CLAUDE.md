@@ -26,7 +26,7 @@ pnpm db:studio           # drizzle-kit studio
 ```
 
 - `pnpm tsx scripts/import-cal-amount.ts` — `docs/common/cal_amount.xlsx` → `cal_amount` 일괄 import(**append** 라 재실행 시 중복. 완전 재import 는 먼저 `TRUNCATE TABLE cal_amount RESTART IDENTITY;`). `DATABASE_URL_UNPOOLED` 사용.
-- `pnpm tsx scripts/match/run.ts [--only 자재코드,…] [--full] [--no-judge] [--judge-limit N]` — 이미지 대조 배치(수집·GS 공통 이미지 제외·해시 게이트·`claude -p` 구독 판정). 로컬은 Claude Code 로그인으로 판정, 운영은 `.github/workflows/image-match.yml`(매일 03:00 KST). GS샵은 해외 IP 를 막아 Actions 에선 `/api/match/gs-page`(Vercel 서울, `vercel.json` regions icn1)로 중계한다. 설계 `_workspace/01_design_image_match.md`.
+- `pnpm tsx scripts/match/run.ts [--only 자재코드,…] [--full] [--no-judge] [--judge-limit N]` — 이미지 대조 배치(수집·GS 공통 이미지 제외·해시 게이트·`claude -p` 구독 판정). 로컬은 Claude Code 로그인으로 판정, 운영은 `.github/workflows/image-match.yml`(매일 03:00 KST). GS샵은 해외 IP 를 막아 Actions 에선 `/api/match/gs-page`(Vercel 서울, `vercel.json` regions icn1)로 중계한다. 설계 `_workspace/01_design_image_match.md`. 판정 결과는 **쌍마다 끝나는 즉시 기록**하고 `match_run.to_judge`/`judged` 로 진행 상황을 남긴다(화면 진행 표시의 원천, 중간에 끊겨도 끝난 판정은 남음). 대시보드의 **[지금 판정 실행]** 버튼(`src/lib/match/run-actions.ts`)은 `GITHUB_DISPATCH_TOKEN`(Vercel 환경변수)으로 이 워크플로를 `judge_limit=1000` 으로 수동 실행한다 — 화면에 로그인이 없어 입력은 받지 않고 조건을 서버에서 고정하며, 실행 중이면 거절한다. 예약 실행의 1회 상한은 30(run.ts 기본값) 그대로.
 - **Windows 테스트 주의:** vitest 기본 워커 풀이 `VirtualAlloc failed` 로 죽는 경우가 있다. 그럴 땐 `pnpm exec vitest run --pool=forks <파일>` 로 실행.
 - 테스트는 순수 단위 테스트(node env, DB/UI 의존 없음) — `src/**/__tests__/**/*.test.ts`. `@` alias = `src/`.
 

@@ -107,7 +107,24 @@ export type MatchRunSummary = {
   judged: number
   deferred: number
   error: string | null
+  /** 이번 실행의 판정 예정 수(진행 표시의 분모). 수집 중이거나 예전 기록이면 0. */
+  toJudge: number
+  /** 시작부터 종료(진행 중이면 지금)까지 걸린 시간(초) — DB now() 기준. */
+  elapsedSec: number
+  /** 지금 돌고 있는 실행인지 — 종료 기록이 없고 시작한 지 RUN_STALE_HOURS 이내. */
+  running: boolean
+  /** 종료 기록 없이 오래된 실행 — 중간에 끊긴 것(시간 제한·취소). 끝난 판정은 남아 있다. */
+  stalled: boolean
+  /** 이번 실행의 토큰(입력+캐시+출력)·API 정가 환산. */
+  tokens: number
+  apiEquivUsd: number
 }
+
+/** 종료 기록이 없는 실행을 "진행 중"으로 보는 최대 시간(시) — Actions 작업 시간 제한(6시간)보다 조금 길게. */
+export const RUN_STALE_HOURS = 6.5
+
+/** 화면의 [지금 판정 실행] 결과. 서버 오류 메시지는 운영 빌드에서 가려지므로 값으로 돌려준다. */
+export type MatchRunStartResult = { ok: boolean; message: string }
 
 /** 일별 판정 토큰 사용량 (KST 기준 날짜). 구독 실행이라 apiEquivUsd 는 청구액이 아닌 API 정가 환산. */
 export type MatchUsageDay = {

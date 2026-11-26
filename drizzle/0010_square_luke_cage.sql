@@ -1,0 +1,1 @@
+ALTER TABLE "match_run" ADD COLUMN "to_judge" integer DEFAULT 0 NOT NULL;

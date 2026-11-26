@@ -11,7 +11,9 @@ import {
   type MatchDashboardRow,
   type MatchDetailImage,
   type MatchPairDetail,
+  type MatchRunSummary,
   type MatchStatus,
+  RUN_STALE_HOURS,
 } from './types'
 
 /**
@@ -25,6 +27,49 @@ import {
 const isStatus = (s: string): s is MatchStatus => (MATCH_STATUSES as readonly string[]).includes(s)
 const iso = (d: Date | string | null): string | null =>
   d == null ? null : (d instanceof Date ? d : new Date(d)).toISOString()
+
+/** 지금 돌고 있는 실행, 없으면 가장 최근 배치 실행 1건 — 경과 시간·진행 중 여부는 DB now() 기준으로 계산한다. */
+async function latestRun(): Promise<MatchRunSummary | null> {
+  const [row] = await db
+    .select({
+      run: matchRun,
+      elapsedSec: sql<number>`extract(epoch from coalesce(${matchRun.finishedAt}, now()) - ${matchRun.startedAt})::float8`,
+    })
+    .from(matchRun)
+    // 돌고 있는 실행이 있으면 그것을 먼저 — 그 사이 다른 실행(로컬 단건 등)이 끝나도 진행 표시가 가려지지 않게.
+    .orderBy(
+      sql`(${matchRun.finishedAt} is null and ${matchRun.startedAt} > now() - make_interval(secs => ${RUN_STALE_HOURS * 3600})) desc`,
+      desc(matchRun.id),
+    )
+    .limit(1)
+  if (!row) return null
+  const r = row.run
+  const elapsedSec = Math.max(0, Math.round(Number(row.elapsedSec)))
+  const open = r.finishedAt == null
+  const fresh = elapsedSec < RUN_STALE_HOURS * 3600
+  return {
+    id: r.id,
+    startedAt: iso(r.startedAt)!,
+    finishedAt: iso(r.finishedAt),
+    total: r.total,
+    fetched: r.fetched,
+    failed: r.failed,
+    judged: r.judged,
+    deferred: r.deferred,
+    error: r.error,
+    toJudge: r.toJudge,
+    elapsedSec,
+    running: open && fresh,
+    stalled: open && !fresh,
+    tokens: r.inputTokens + r.cacheCreationTokens + r.cacheReadTokens + r.outputTokens,
+    apiEquivUsd: Number(r.apiEquivUsd),
+  }
+}
+
+/** 진행 표시용 — 화면이 실행 중에 몇 초마다 부른다. */
+export async function getMatchRunProgress(): Promise<MatchRunSummary | null> {
+  return latestRun()
+}
 
 /** 사용량 패널 기간(일). */
 const USAGE_DAYS = 30
@@ -48,7 +93,7 @@ export async function getMatchDashboard(): Promise<MatchDashboard> {
   for (const r of rows) byStatus[r.status]++
   const lastRegisteredAt = pairs.reduce<Date | null>((m, p) => (!m || p.createdAt > m ? p.createdAt : m), null)
 
-  const [lastRun] = await db.select().from(matchRun).orderBy(desc(matchRun.id)).limit(1)
+  const lastRun = await latestRun()
   const [lastOk] = await db
     .select({
       finishedAt: matchRun.finishedAt,
@@ -77,19 +122,7 @@ export async function getMatchDashboard(): Promise<MatchDashboard> {
   return {
     rows,
     byStatus,
-    lastRun: lastRun
-      ? {
-          id: lastRun.id,
-          startedAt: iso(lastRun.startedAt)!,
-          finishedAt: iso(lastRun.finishedAt),
-          total: lastRun.total,
-          fetched: lastRun.fetched,
-          failed: lastRun.failed,
-          judged: lastRun.judged,
-          deferred: lastRun.deferred,
-          error: lastRun.error,
-        }
-      : null,
+    lastRun,
     lastSuccessAt: iso(lastOk?.finishedAt ?? null),
     hoursSinceSuccess: lastOk ? Number(lastOk.hours) : null,
     lastRegisteredAt: iso(lastRegisteredAt),

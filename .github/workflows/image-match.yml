@@ -6,6 +6,9 @@
 #   CLAUDE_CODE_OAUTH_TOKEN   로컬에서 `claude setup-token` 으로 발급한 Max 구독 토큰
 #   MATCH_PROXY_KEY           GS 중계 API 키 (Vercel 환경변수 MATCH_PROXY_KEY 와 같은 값)
 #
+# 수동 실행: GitHub 의 Run workflow, 또는 대시보드(/image-match)의 [지금 판정 실행] 버튼
+# (src/lib/match/run-actions.ts — Vercel 환경변수 GITHUB_DISPATCH_TOKEN 으로 workflow_dispatch 를 보낸다).
+#
 # GS샵은 해외 IP(Actions 러너)에 오류 페이지를 준다 → GS 페이지만 Vercel 서울 리전 중계
 # (src/app/api/match/gs-page) 를 거쳐 받는다.
 #
@@ -48,7 +51,9 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # 화면의 [지금 판정 실행]은 대기 중인 쌍을 한 번에 판정한다(수백 쌍이면 몇 시간) — GitHub 상한(360분) 가까이 둔다.
+    # 판정은 쌍마다 바로 기록되므로 시간 제한에 걸려도 끝난 판정은 남고, 나머지는 다음 실행이 이어서 한다.
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
 

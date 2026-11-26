@@ -58,6 +58,7 @@ import {
   type MatchPairDetail,
   type MatchStatus,
 } from "@/lib/match/types"
+import { MatchRunPanel } from "./match-run-panel"
 import { MatchUploadDialog } from "./match-upload-dialog"
 import type { EvidenceCrop } from "@/lib/match/evidence"
 import type { Confidence, VerdictDifference } from "@/lib/match/judge-rules"
@@ -202,6 +203,7 @@ export function MatchDashboardClient({ data, stale }: Props) {
 
   return (
     <div className="space-y-6">
+      <MatchRunPanel run={data.lastRun} pendingCount={data.byStatus.new} />
       <BatchStatus data={data} stale={stale} />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
@@ -297,14 +299,9 @@ export function MatchDashboardClient({ data, stale }: Props) {
 function BatchStatus({ data, stale }: Props) {
   const run = data.lastRun
   const hoursSinceSuccess = data.hoursSinceSuccess
+  if (!run?.error && !stale) return null
   return (
     <div className="space-y-2">
-      <p className="text-sm text-muted-foreground">
-        마지막 배치 {run ? fmt(run.finishedAt ?? run.startedAt) : "없음"}
-        {run &&
-          ` · 수집 ${run.fetched}/${run.total}${run.failed ? ` · 실패 ${run.failed}` : ""} · 판정 ${run.judged}${run.deferred ? ` · 다음으로 미룸 ${run.deferred}` : ""}`}
-        {" · "}매일 03:00 자동 실행
-      </p>
       {run?.error && (
         <Alert variant="destructive">
           <AlertTitle>마지막 배치에 오류가 있습니다</AlertTitle>

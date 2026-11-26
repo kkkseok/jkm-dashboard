@@ -83,6 +83,11 @@ export const matchRun = pgTable('match_run', {
   fetched: integer('fetched').notNull().default(0),
   judged: integer('judged').notNull().default(0),
   failed: integer('failed').notNull().default(0),
+  /**
+   * 이번 실행에서 판정하려는 쌍 수(대기열과 1회 상한 중 작은 값). 게이트가 끝나면 채운다 —
+   * 진행 표시(judged / to_judge)의 분모. 수집 중에는 0.
+   */
+  toJudge: integer('to_judge').notNull().default(0),
   /** 1회 판정 상한 초과로 다음 실행에 미룬 쌍 수. */
   deferred: integer('deferred').notNull().default(0),
   inputTokens: bigint('input_tokens', { mode: 'number' }).notNull().default(0),
