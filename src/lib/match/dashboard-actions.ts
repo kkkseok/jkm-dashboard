@@ -205,7 +205,8 @@ export async function getMatchPairDetail(pairId: number): Promise<MatchPairDetai
         }
       : null,
     judged: judged?.verdict
-      ? { judgedAt: iso(judged.createdAt)!, model: judged.model, verdict: judged.verdict as Verdict }
+      ? // 판정에 쓴 모델 이름은 화면에 내보내지 않는다(DB match_check.model 에만 남긴다).
+        { judgedAt: iso(judged.createdAt)!, verdict: judged.verdict as Verdict }
       : null,
     lastError: latestAny && !latestAny.fetchOk ? latestAny.fetchError : null,
     logs: logs.map((l) => ({

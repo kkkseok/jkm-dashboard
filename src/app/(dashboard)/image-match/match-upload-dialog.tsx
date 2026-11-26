@@ -23,7 +23,7 @@ const koInt = new Intl.NumberFormat("ko-KR")
 async function parseWithDiff(file: File): Promise<MatchSourcePreview> {
   const parsed = await parseMatchSource(file)
   if (parsed.rows.length === 0) {
-    throw new Error("적재할 행이 없습니다. 자재코드와 두 URL 이 모두 있는 행이 필요합니다.")
+    throw new Error("등록할 행이 없습니다. 자재코드와 GS·본사 주소가 모두 있는 행이 필요합니다.")
   }
   const diff = await previewMatchUpload(parsed.rows)
   return { ...parsed, diff }
@@ -54,14 +54,14 @@ export function MatchUploadDialog({
           <DialogHeader>
             <DialogTitle>대조 대상 업로드</DialogTitle>
             <DialogDescription>
-              기존 등록분에 추가·갱신됩니다. 파일에 없는 쌍도 지우지 않고 계속 확인합니다. 새로 등록한 쌍은 다음 배치(매일 03:00)에 판정됩니다.
+              기존 목록에 추가되거나 갱신됩니다. 파일에 없는 상품도 지우지 않고 계속 확인합니다. 새로 등록한 상품은 다음 자동 확인(매일 03:00) 때 판정됩니다.
             </DialogDescription>
           </DialogHeader>
           {/* 닫으면 언마운트 → 다시 열 때 업로드 카드 상태를 새로 시작 */}
           {open && (
             <UploadCard<MatchSourcePreview>
-              title="대조 대상 URL"
-              description="자재코드 · 자재명(상품명) · GS · 본사(더마켓) 헤더가 있는 엑셀(헤더 위치는 자동 인식). '전체리스트' 시트가 있으면 그 시트를 읽습니다."
+              title="대조 대상 목록"
+              description="자재코드 · 자재명(상품명) · GS · 본사(더마켓) 열이 있는 엑셀을 올려 주세요. 제목 행 위치는 자동으로 찾고, '전체리스트' 시트가 있으면 그 시트를 읽습니다."
               lastCount={total}
               lastUpdatedAt={lastRegisteredAt}
               parse={parseWithDiff}
@@ -79,18 +79,18 @@ export function MatchUploadDialog({
                 <div className="space-y-1">
                   <p>
                     <span className="font-medium tabular-nums">{koInt.format(p.stats.validCount)}</span>건 · 신규{" "}
-                    <span className="font-medium tabular-nums">{koInt.format(p.diff.newCount)}</span> · URL 변경{" "}
+                    <span className="font-medium tabular-nums">{koInt.format(p.diff.newCount)}</span> · 주소 변경{" "}
                     <span className="font-medium tabular-nums">{koInt.format(p.diff.urlChangedCount)}</span> · 표기만 변경{" "}
                     {koInt.format(p.diff.nameChangedCount)} · 동일 {koInt.format(p.diff.sameCount)}
                   </p>
                   {p.diff.urlChangedCount > 0 && (
-                    <p className="text-xs text-warning">상품번호가 바뀐 쌍은 상태가 &lsquo;미확인&rsquo;으로 초기화됩니다.</p>
+                    <p className="text-xs text-warning">상품번호가 바뀐 건은 상태가 &lsquo;미확인&rsquo;으로 초기화됩니다.</p>
                   )}
                   <p className="text-xs text-muted-foreground">
                     제외 · 자재코드 중복 {koInt.format(p.stats.dupCount)} · 형식 오류 {koInt.format(p.stats.invalidCount)}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    인식 · 시트 {p.layout.sheet} · 헤더 {p.layout.headerRow}행 · 자재코드 {p.layout.cols.matCode}열 · 자재명{" "}
+                    읽은 위치 · 시트 {p.layout.sheet} · 제목 행 {p.layout.headerRow}행 · 자재코드 {p.layout.cols.matCode}열 · 자재명{" "}
                     {p.layout.cols.productName}열 · GS {p.layout.cols.gsUrl}열 · 본사 {p.layout.cols.cjUrl}열
                   </p>
                 </div>

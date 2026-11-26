@@ -166,7 +166,6 @@ export type MatchPairDetail = {
   /** 마지막 AI 판정. */
   judged: {
     judgedAt: string
-    model: string | null
     verdict: Verdict
   } | null
   /** 가장 최근 수집 실패 메시지 (마지막 수집이 실패일 때만). */

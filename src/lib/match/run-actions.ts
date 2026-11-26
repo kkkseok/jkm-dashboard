@@ -26,11 +26,17 @@ const RUN_ALL_LIMIT = 1000
 const ACTIVE = new Set(['queued', 'in_progress', 'requested', 'waiting', 'pending'])
 
 const fail = (message: string): MatchRunStartResult => ({ ok: false, message })
+/** 설정·권한 문제 — 화면에는 내부 이름을 내보내지 않고, 원인은 서버 로그에 남긴다. */
+const failLogged = (message: string, cause: string): MatchRunStartResult => {
+  console.error(`[match] 판정 실행 요청 실패 — ${cause}`)
+  return fail(message)
+}
+const ASK_ADMIN = '잠시 뒤 다시 시도하고, 계속되면 관리자에게 문의해 주세요.'
 
 export async function startMatchRun(): Promise<MatchRunStartResult> {
   const token = process.env.GITHUB_DISPATCH_TOKEN
   if (!token) {
-    return fail('실행 권한이 설정되지 않았습니다 — Vercel 환경변수 GITHUB_DISPATCH_TOKEN 을 등록해 주세요.')
+    return failLogged('판정 실행이 아직 설정되지 않았습니다. 관리자에게 문의해 주세요.', '환경변수 GITHUB_DISPATCH_TOKEN 없음')
   }
 
   // 1) DB 기준: 종료 기록이 없는 최근 실행이 있으면 진행 중.
@@ -42,7 +48,7 @@ export async function startMatchRun(): Promise<MatchRunStartResult> {
     )
     .orderBy(desc(matchRun.id))
     .limit(1)
-  if (open) return fail('이미 배치가 돌고 있습니다. 끝난 뒤 다시 실행해 주세요.')
+  if (open) return fail('이미 실행 중입니다. 끝난 뒤 다시 실행해 주세요.')
 
   const headers = {
     Authorization: `Bearer ${token}`,
@@ -55,7 +61,7 @@ export async function startMatchRun(): Promise<MatchRunStartResult> {
   try {
     // 2) GitHub 기준: 방금 눌러 아직 DB 에 기록이 없는 실행(준비 단계)도 잡는다.
     const list = await fetch(`${base}/runs?per_page=10`, { headers, cache: 'no-store', signal: AbortSignal.timeout(10_000) })
-    if (!list.ok) return fail(`GitHub 실행 목록을 읽지 못했습니다 (HTTP ${list.status}). 토큰 권한을 확인해 주세요.`)
+    if (!list.ok) return failLogged(`실행 상태를 확인하지 못했습니다. ${ASK_ADMIN}`, `GitHub 실행 목록 HTTP ${list.status} (토큰 권한 확인)`)
     const runs = ((await list.json()) as { workflow_runs?: { status: string }[] }).workflow_runs ?? []
     if (runs.some((r) => ACTIVE.has(r.status))) {
       return fail('이미 실행 요청이 들어가 있습니다. 잠시 뒤 진행 상황이 표시됩니다.')
@@ -68,9 +74,9 @@ export async function startMatchRun(): Promise<MatchRunStartResult> {
       cache: 'no-store',
       signal: AbortSignal.timeout(10_000),
     })
-    if (res.status !== 204) return fail(`실행 요청이 거절됐습니다 (HTTP ${res.status}). 토큰 권한(Actions 쓰기)을 확인해 주세요.`)
+    if (res.status !== 204) return failLogged(`실행을 시작하지 못했습니다. ${ASK_ADMIN}`, `workflow_dispatch HTTP ${res.status} (토큰의 Actions 쓰기 권한 확인)`)
   } catch (e) {
-    return fail(`GitHub 에 연결하지 못했습니다 — ${e instanceof Error ? e.message : String(e)}`)
+    return failLogged(`실행을 시작하지 못했습니다. ${ASK_ADMIN}`, `GitHub 연결 실패: ${e instanceof Error ? e.message : String(e)}`)
   }
   return { ok: true, message: '실행을 요청했습니다. 준비에 1~2분 걸린 뒤 진행 상황이 표시됩니다.' }
 }

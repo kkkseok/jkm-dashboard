@@ -61,6 +61,7 @@ import {
 } from "@/lib/match/types"
 import { MatchRunPanel } from "./match-run-panel"
 import { MatchUploadDialog } from "./match-upload-dialog"
+import { friendlyFetchError, friendlyLogNote, friendlyRunError } from "@/lib/match/wording"
 import type { EvidenceCrop } from "@/lib/match/evidence"
 import type { Confidence, Verdict, VerdictDifference } from "@/lib/match/judge-rules"
 
@@ -163,7 +164,7 @@ export function MatchDashboardClient({ data, stale }: Props) {
           <div className="flex items-center gap-1">
             <StatusBadge status={row.original.status} />
             {row.original.humanDecidedAt && (
-              <span className="text-xs text-muted-foreground" title="확인자가 직접 정한 판정">
+              <span className="text-xs text-muted-foreground" title="확인자가 직접 정한 결과입니다">
                 (확인자)
               </span>
             )}
@@ -298,9 +299,9 @@ export function MatchDashboardClient({ data, stale }: Props) {
             />
           </div>
           <span className="text-sm text-muted-foreground">
-            {koInt.format(filtered.length)}건 · 그 외 {MATCH_STATUSES.filter((s) => data.byStatus[s] > 0 && s !== "match")
+            {koInt.format(filtered.length)}건 표시 · 전체 현황: {MATCH_STATUSES.filter((s) => data.byStatus[s] > 0 && s !== "match")
               .map((s) => `${MATCH_STATUS_LABEL[s]} ${data.byStatus[s]}`)
-              .join(" · ") || "조치 필요 없음"}
+              .join(" · ") || "확인할 건 없음"}
             {" · "}일치 {koInt.format(data.byStatus.match)}
           </span>
           <div className="ml-auto">
@@ -332,7 +333,7 @@ export function MatchDashboardClient({ data, stale }: Props) {
                 <TableRow>
                   <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
                     {data.rows.length === 0
-                      ? "등록된 대조 대상이 없습니다. 위의 [대상 엑셀 업로드]로 엑셀을 올려 주세요."
+                      ? "등록된 대조 대상이 없습니다. 오른쪽 위 [대상 엑셀 업로드]로 엑셀을 올려 주세요."
                       : "조건에 맞는 항목이 없습니다."}
                   </TableCell>
                 </TableRow>
@@ -388,12 +389,22 @@ export function MatchDashboardClient({ data, stale }: Props) {
         </div>
       </div>
 
-      <PairSheet pairId={openId} ids={orderedIds} onNavigate={openPair} onClose={() => setOpenId(null)} />
+      <PairSheet pairId={openId} row={openId == null ? undefined : data.rows.find((r) => r.id === openId)} ids={orderedIds} onNavigate={openPair} onClose={() => setOpenId(null)} />
     </div>
   )
 }
 
-// ── 배치 현황 ─────────────────────────────────────────
+// ── 실행 현황 경고 ─────────────────────────────────────
+
+/** 안내 문구 아래에 접어 두는 오류 원문 — 평소엔 가리고, 원인을 찾을 때만 펼친다. */
+function RawError({ text }: { text: string }) {
+  return (
+    <details className="mt-1 text-xs opacity-80">
+      <summary className="cursor-pointer">오류 원문</summary>
+      <p className="mt-1 break-all">{text}</p>
+    </details>
+  )
+}
 
 function BatchStatus({ data, stale }: Props) {
   const run = data.lastRun
@@ -403,18 +414,21 @@ function BatchStatus({ data, stale }: Props) {
     <div className="space-y-2">
       {run?.error && (
         <Alert variant="destructive">
-          <AlertTitle>마지막 배치에 오류가 있습니다</AlertTitle>
-          <AlertDescription>{run.error}</AlertDescription>
+          <AlertTitle>마지막 실행이 정상적으로 끝나지 않았습니다</AlertTitle>
+          <AlertDescription>
+            {friendlyRunError(run.error)}
+            <RawError text={run.error} />
+          </AlertDescription>
         </Alert>
       )}
       {stale && (
         <Alert variant="destructive">
-          <AlertTitle>배치가 오래 돌지 않았습니다</AlertTitle>
+          <AlertTitle>자동 확인이 오래 실행되지 않았습니다</AlertTitle>
           <AlertDescription>
             {hoursSinceSuccess == null
-              ? "정상 완료된 배치가 아직 없습니다."
-              : `마지막 정상 배치가 ${Math.floor(hoursSinceSuccess)}시간 전입니다.`}{" "}
-            GitHub Actions 의 image-match 실행 기록을 확인해 주세요.
+              ? "정상적으로 끝난 실행이 아직 없습니다."
+              : `마지막으로 정상 실행된 지 ${Math.floor(hoursSinceSuccess)}시간이 지났습니다.`}{" "}
+            매일 03:00 자동 확인이 멈췄을 수 있으니 관리자에게 문의해 주세요.
           </AlertDescription>
         </Alert>
       )}
@@ -437,6 +451,7 @@ const CONFIDENCE_LABEL: Record<Confidence, { label: string; className: string }>
   medium: { label: "확신 보통", className: "bg-warning/15 text-warning" },
   low: { label: "확신 낮음", className: "bg-muted text-muted-foreground" },
 }
+const ACTOR_LABEL: Record<string, string> = { batch: "자동 확인", user: "확인자", upload: "업로드" }
 
 /**
  * CJ·GS 구분 색 — 상세 창 어디서든 같은 쪽은 같은 색(CJ 보라 / GS 청록)으로 보이게 한 곳에서 정한다.
@@ -459,6 +474,7 @@ const SIDE = {
   },
 } as const
 type Side = keyof typeof SIDE
+const SIDES = ["cj", "gs"] as const
 
 function SideTag({ side }: { side: Side }) {
   return (
@@ -500,6 +516,25 @@ function SidePanel({ side, meta, children }: { side: Side; meta?: React.ReactNod
   )
 }
 
+/** 제목을 누르면 펼쳐지는 영역 — 접혀 있는 동안은 안의 이미지를 불러오지 않는다. */
+function Fold({ title, defaultOpen = false, children }: { title: React.ReactNode; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = React.useState(defaultOpen)
+  return (
+    <section className="space-y-2">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-1 rounded-md py-1 text-left text-sm font-medium hover:bg-muted/50"
+      >
+        <ChevronRightIcon className={cn("size-4 shrink-0 transition-transform", open && "rotate-90")} />
+        {title}
+      </button>
+      {open && children}
+    </section>
+  )
+}
+
 /** 머리글의 판정 요약 — 썸네일·상세 결과 칩 + 한 줄 요약. */
 function VerdictSummary({ verdict }: { verdict: Verdict }) {
   return (
@@ -521,16 +556,133 @@ function VerdictSummary({ verdict }: { verdict: Verdict }) {
   )
 }
 
-/** 근거 재검증 결과 라벨 (근거 부분만 다시 본 2차 확인). */
-const VERIFY_LABEL = { confirmed: "차이 확인됨", rejected: "1차 판정과 엇갈림", unsure: "근거로 확인 불가" } as const
+// ── 이미지 · 크게 보기 ─────────────────────────────────
 
-/** 차이 1건 — 설명 + CJ·GS 의 해당 부분 이미지(근거)를 쪽별 칸에 나란히. */
-function DifferenceCard({ d }: { d: VerdictDifference }) {
+/** 화면에 놓는 이미지 1장 — crop 이 있으면 그 구간만, 없으면 전체. changed = 기준 판정 이후 바뀐 이미지. */
+type Shot = { url: string; crop?: EvidenceCrop; changed?: boolean }
+
+/** 크게 보기 창에 띄울 내용 — CJ·GS 를 나란히. focus = 열자마자 보여줄 이미지. */
+type Zoom = { title: string; cj: Shot[]; gs: Shot[]; focus?: { side: Side; index: number } }
+
+/**
+ * 이미지 1장. 원본 URL 을 그대로 보여주고 저장하지 않는다(설계 §3).
+ * 근거 이미지는 원본의 top~bottom 구간만 잘라 보여준다 — 높이·위치가 폭 대비 비율이라 padding/margin 의 %(폭 기준)로 맞춘다.
+ */
+function ShotImage({ shot }: { shot: Shot }) {
+  if (shot.crop) {
+    const c = shot.crop
+    return (
+      <div className="relative w-full overflow-hidden border bg-white" style={{ paddingBottom: `${(c.bottom - c.top) * c.aspect * 100}%` }}>
+        <div className="absolute inset-0">
+          {/* eslint-disable-next-line @next/next/no-img-element -- 외부 쇼핑몰 원본 이미지 일부를 그대로 보여준다 */}
+          <img src={c.url} alt="" loading="lazy" className="block w-full" style={{ marginTop: `-${c.top * c.aspect * 100}%` }} />
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="relative">
+      {/* eslint-disable-next-line @next/next/no-img-element -- 외부 쇼핑몰 원본 이미지를 그대로 보여준다(최적화·저장 불필요) */}
+      <img src={shot.url} alt="" loading="lazy" className={cn("block w-full border bg-white", shot.changed && "border-2 border-amber-500")} />
+      {shot.changed && <Badge className="absolute top-1 left-1 bg-amber-500 text-white">변경</Badge>}
+    </div>
+  )
+}
+
+/** 한쪽 이미지 목록 — onOpen 이 있으면 누를 때 크게 보기를 연다. */
+function ShotList({ shots, onOpen, empty = "이미지 없음" }: { shots: Shot[]; onOpen?: (index: number) => void; empty?: string | null }) {
+  if (shots.length === 0) return empty ? <p className="text-xs text-muted-foreground">{empty}</p> : null
+  return (
+    <>
+      {shots.map((s, i) =>
+        onOpen ? (
+          <button key={i} type="button" onClick={() => onOpen(i)} className="block w-full cursor-zoom-in" aria-label="크게 보기">
+            <ShotImage shot={s} />
+          </button>
+        ) : (
+          <div key={i} data-shot={i}>
+            <ShotImage shot={s} />
+          </div>
+        ),
+      )}
+    </>
+  )
+}
+
+/** 크게 보기 — CJ·GS 를 화면 가득 나란히 놓는다(한 번에 같이 스크롤). */
+function ZoomDialog({ zoom, onClose }: { zoom: Zoom | null; onClose: () => void }) {
+  return (
+    <Dialog open={zoom != null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="flex h-[94dvh] w-[96vw] max-w-none flex-col gap-3 sm:max-w-none">
+        {zoom && <ZoomBody zoom={zoom} />}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ZoomBody({ zoom }: { zoom: Zoom }) {
+  const scroller = React.useRef<HTMLDivElement>(null)
+  const focus = zoom.focus
+  // 전체 이미지에서 열었으면 누른 이미지가 바로 보이게 내려 준다.
+  // 위쪽 이미지가 뒤늦게 불러와지면 자리가 밀리므로, 사용자가 직접 스크롤하기 전까지는 불러올 때마다 다시 맞춘다.
+  React.useEffect(() => {
+    const el = scroller.current
+    const target = focus && el?.querySelector(`[data-side="${focus.side}"] [data-shot="${focus.index}"]`)
+    if (!el || !target) return
+    const go = () => target.scrollIntoView({ block: "start" })
+    const stop = () => el.removeEventListener("load", go, true)
+    go()
+    el.addEventListener("load", go, true) // load 는 버블되지 않아 캡처로 받는다
+    el.addEventListener("wheel", stop, { passive: true })
+    el.addEventListener("pointerdown", stop)
+    return () => {
+      stop()
+      el.removeEventListener("wheel", stop)
+      el.removeEventListener("pointerdown", stop)
+    }
+  }, [focus])
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle className="pr-8">{zoom.title}</DialogTitle>
+        <DialogDescription>왼쪽이 CJ 원본, 오른쪽이 GS 입니다.</DialogDescription>
+      </DialogHeader>
+      <div ref={scroller} className="grid min-h-0 flex-1 grid-cols-2 items-start gap-3 overflow-y-auto">
+        {SIDES.map((side) => (
+          <div key={side} data-side={side} className="min-w-0 [&_[data-shot]]:scroll-mt-10">
+            <SidePanel side={side} meta={`${zoom[side].length}장`}>
+              <ShotList shots={zoom[side]} />
+            </SidePanel>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+// ── 차이 카드 ─────────────────────────────────────────
+
+/** 근거 재확인 결과 라벨 (근거 부분만 다시 본 2차 확인). */
+const VERIFY_LABEL = { confirmed: "차이 확인됨", rejected: "처음 판정과 엇갈림", unsure: "근거만으로는 확인 불가" } as const
+
+/** 확신이 낮거나 재확인에서 엇갈린 차이 — 아래에 따로 모아 접어 둔다. */
+const isWeak = (d: VerdictDifference) => d.confidence === "low" || d.verify === "rejected"
+
+/** 차이 1건 — 번호·설명 + CJ·GS 의 해당 부분 이미지(근거)를 쪽별 칸에 나란히. */
+function DifferenceCard({ d, no, onZoom }: { d: VerdictDifference; no: number; onZoom: (z: Zoom) => void }) {
   const conf = CONFIDENCE_LABEL[d.confidence ?? "high"]
-  const hasEvidence = (d.cjEvidence?.length ?? 0) + (d.gsEvidence?.length ?? 0) > 0
+  const shots = {
+    cj: (d.cjEvidence ?? []).map((c): Shot => ({ url: c.url, crop: c })),
+    gs: (d.gsEvidence ?? []).map((c): Shot => ({ url: c.url, crop: c })),
+  }
+  const hasEvidence = shots.cj.length + shots.gs.length > 0
+  const open = () => onZoom({ title: `차이 ${no} · ${d.what}`, ...shots })
   return (
     <li className="space-y-2 rounded-lg border p-3">
       <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background tabular-nums">
+          {no}
+        </span>
         <Badge variant="outline">{AREA_LABEL[d.area]}</Badge>
         <span className="font-medium">{d.what}</span>
         {d.confidence && (
@@ -545,38 +697,22 @@ function DifferenceCard({ d }: { d: VerdictDifference }) {
           </span>
         )}
       </div>
-      <div className={cn("grid grid-cols-2 gap-3", hasEvidence && "max-h-[560px] overflow-y-auto")}>
-        <SidePanel side="cj">
-          <p className="text-xs">{d.cj}</p>
-          {d.cjEvidence?.map((c, i) => <EvidenceImage key={i} crop={c} />)}
-        </SidePanel>
-        <SidePanel side="gs">
-          <p className="text-xs">{d.gs}</p>
-          {d.gsEvidence?.map((c, i) => <EvidenceImage key={i} crop={c} />)}
-        </SidePanel>
+      <div className="grid grid-cols-2 items-start gap-3">
+        {SIDES.map((side) => (
+          <SidePanel key={side} side={side}>
+            <p className="text-xs">{d[side]}</p>
+            <ShotList shots={shots[side]} onOpen={open} empty={null} />
+          </SidePanel>
+        ))}
       </div>
       {!hasEvidence && (
-        <p className="text-xs text-muted-foreground">근거 이미지 위치가 없습니다(이전 형식 판정). 아래 전체 이미지에서 확인해 주세요.</p>
+        <p className="text-xs text-muted-foreground">이 차이는 해당 부분 이미지가 기록되지 않았습니다. 아래 전체 이미지에서 확인해 주세요.</p>
       )}
     </li>
   )
 }
 
-/**
- * 원본 이미지의 top~bottom 구간만 잘라 보여준다(이미지는 저장하지 않음 — 설계 §3).
- * 높이·위치는 폭 대비 비율이라 padding/margin 의 % (폭 기준)로 맞춘다.
- */
-function EvidenceImage({ crop }: { crop: EvidenceCrop }) {
-  const heightPct = (crop.bottom - crop.top) * crop.aspect * 100
-  return (
-    <div className="relative w-full overflow-hidden border bg-white" style={{ paddingBottom: `${heightPct}%` }}>
-      <div className="absolute inset-0">
-        {/* eslint-disable-next-line @next/next/no-img-element -- 외부 쇼핑몰 원본 이미지 일부를 그대로 보여준다 */}
-        <img src={crop.url} alt="" loading="lazy" className="block w-full" style={{ marginTop: `-${crop.top * crop.aspect * 100}%` }} />
-      </div>
-    </div>
-  )
-}
+// ── 상세 창 ───────────────────────────────────────────
 
 type PairNav = {
   /** 목록(필터·정렬 적용) 순서의 전체 id. */
@@ -585,14 +721,40 @@ type PairNav = {
   onClose: () => void
 }
 
-function PairSheet({ pairId, ...nav }: { pairId: number | null } & PairNav) {
+type PairSheetProps = {
+  pairId: number | null
+  /** 목록에 이미 있는 그 쌍의 행 — 상세를 불러오기 전에 머리글부터 보여준다. */
+  row: MatchDashboardRow | undefined
+} & PairNav
+
+/** 상세 조회 결과를 잠깐 들고 있는 개수 — 넘기면 비운다(이전·다음 이동용이라 많이 필요 없다). */
+const DETAIL_CACHE_MAX = 20
+
+function PairSheet({ pairId, row, ...nav }: PairSheetProps) {
   const { onClose } = nav
+  // 상세 조회 캐시 — 다음 건을 미리 불러 두고, 되돌아갈 때 다시 기다리지 않게. 창을 닫거나 처리하면 비운다.
+  const cache = React.useRef(new Map<number, Promise<MatchPairDetail>>())
+  const load = React.useCallback((id: number) => {
+    const hit = cache.current.get(id)
+    if (hit) return hit
+    if (cache.current.size >= DETAIL_CACHE_MAX) cache.current.clear()
+    const req = getMatchPairDetail(id)
+    cache.current.set(id, req)
+    // 실패한 조회는 남기지 않는다 — 다시 열면 새로 시도한다.
+    req.catch(() => cache.current.delete(id))
+    return req
+  }, [])
+  const invalidate = React.useCallback(() => cache.current.clear(), [])
+  React.useEffect(() => {
+    if (pairId == null) cache.current.clear()
+  }, [pairId])
+
   return (
     <Sheet open={pairId != null} onOpenChange={(o) => !o && onClose()}>
       {/* 창 자체는 스크롤하지 않는다 — 머리글·아래 조치 바는 고정하고 가운데 본문만 스크롤한다. */}
       <SheetContent className="w-full gap-0 overflow-hidden data-[side=right]:w-full data-[side=right]:sm:max-w-5xl">
         {/* key: 다른 쌍을 열면 본문 상태(상세·메모·스크롤 위치)를 새로 시작한다 */}
-        {pairId != null && <PairSheetBody key={pairId} pairId={pairId} {...nav} />}
+        {pairId != null && <PairSheetBody key={pairId} pairId={pairId} row={row} load={load} invalidate={invalidate} {...nav} />}
       </SheetContent>
     </Sheet>
   )
@@ -607,34 +769,70 @@ type PairAction = {
   ok: string
 }
 
-function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } & PairNav) {
+/** 상세를 불러오는 동안의 자리 표시. */
+function BodySkeleton() {
+  return (
+    <div className="space-y-4 p-4" aria-hidden>
+      <div className="flex gap-3">
+        <div className="size-40 animate-pulse rounded-lg bg-muted" />
+        <div className="size-40 animate-pulse rounded-lg bg-muted" />
+      </div>
+      <div className="h-6 w-1/3 animate-pulse rounded bg-muted" />
+      <div className="grid grid-cols-2 gap-3">
+        <div className="h-72 animate-pulse rounded-lg bg-muted" />
+        <div className="h-72 animate-pulse rounded-lg bg-muted" />
+      </div>
+    </div>
+  )
+}
+
+function PairSheetBody({
+  pairId,
+  row,
+  load,
+  invalidate,
+  ids,
+  onNavigate,
+  onClose,
+}: {
+  pairId: number
+  row: MatchDashboardRow | undefined
+  load: (id: number) => Promise<MatchPairDetail>
+  invalidate: () => void
+} & PairNav) {
   const router = useRouter()
   // 처리한 쌍은 새로고침 뒤 목록에서 빠질 수 있다 — 그때는 위치를 알 수 없어 이동 버튼을 끈다.
   const pos = ids.indexOf(pairId)
   const prevId = pos > 0 ? ids[pos - 1] : null
   const nextId = pos >= 0 && pos < ids.length - 1 ? ids[pos + 1] : null
   const [detail, setDetail] = React.useState<MatchPairDetail | null>(null)
-  const [loadError, setLoadError] = React.useState<string | null>(null)
+  const [loadError, setLoadError] = React.useState(false)
   const [note, setNote] = React.useState("")
   const [memoOpen, setMemoOpen] = React.useState(false)
   const [pending, startTransition] = React.useTransition()
   const [confirmDelete, setConfirmDelete] = React.useState(false)
+  const [zoom, setZoom] = React.useState<Zoom | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
-    getMatchPairDetail(pairId)
-      .then((d) => !cancelled && setDetail(d))
-      .catch((e: unknown) => !cancelled && setLoadError(e instanceof Error ? e.message : "불러오기 실패"))
+    load(pairId)
+      .then((d) => {
+        if (cancelled) return
+        setDetail(d)
+        // 보통 다음 건으로 넘어가므로 미리 불러 둔다.
+        if (nextId != null) void load(nextId)
+      })
+      .catch(() => !cancelled && setLoadError(true))
     return () => {
       cancelled = true
     }
-  }, [pairId])
+  }, [pairId, nextId, load])
 
-  // ← → 로 이전·다음 건 이동. 메모 등 입력 중이거나 처리·삭제 확인 중에는 끼어들지 않는다.
+  // ← → 로 이전·다음 건 이동. 메모 등 입력 중이거나 처리·삭제 확인·크게 보기 중에는 끼어들지 않는다.
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
-      if (pending || confirmDelete) return
+      if (pending || confirmDelete || zoom) return
       const t = e.target
       if (t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return
       const to = e.key === "ArrowLeft" ? prevId : e.key === "ArrowRight" ? nextId : null
@@ -645,13 +843,15 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
     // 캡처 단계 — 대화창(base-ui)이 안쪽 키 입력의 전파를 막아 버블 단계에서는 받지 못한다.
     window.addEventListener("keydown", onKey, true)
     return () => window.removeEventListener("keydown", onKey, true)
-  }, [prevId, nextId, onNavigate, pending, confirmDelete])
+  }, [prevId, nextId, onNavigate, pending, confirmDelete, zoom])
 
   function run(action: () => Promise<void>, ok: string) {
     startTransition(async () => {
       try {
         await action()
         toast.success(ok)
+        // 상태가 바뀌었으니 미리 불러 둔 상세는 버린다.
+        invalidate()
         // 처리하면 바로 다음 건으로 — 마지막 건이면 닫는다.
         if (nextId != null) onNavigate(nextId)
         else onClose()
@@ -663,8 +863,12 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
   }
 
   const p = detail?.pair
+  /** 머리글에 쓸 정보 — 상세가 오기 전에는 목록의 행으로 먼저 보여준다. */
+  const head = p ?? row
+  const judged = detail?.judged ?? null
+  const latest = detail?.latest ?? null
 
-  // 상태별 조치 — 아래 고정 바 한 곳에 모은다(처리 완료·보류 확정·AI 판정 정정).
+  // 상태별 조치 — 아래 고정 바 한 곳에 모은다(처리 완료·보류 확정·판정 정정).
   let hint = ""
   const actions: PairAction[] = []
   if (detail && p) {
@@ -677,18 +881,18 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
     if (p.status === "diff" || p.status === "unfixed") {
       hint =
         p.status === "unfixed"
-          ? "처리 완료로 표시했지만 다음 확인에서도 다릅니다."
+          ? "처리 완료로 표시했지만 다시 확인해도 여전히 다릅니다."
           : "GS 를 원본에 맞게 고친 뒤 처리 완료로 표시하세요."
-      if (detail.judged) actions.push(fixToMatch("같은 상품으로 정정", "같은 상품으로 정정했습니다"))
+      if (judged) actions.push(fixToMatch("같은 상품으로 정정", "같은 상품으로 정정했습니다"))
       actions.push({
         label: "처리 완료",
         variant: "default",
-        title: "다음 배치가 GS 를 다시 확인해 일치면 ‘일치’, 여전히 다르면 ‘미반영’으로 바꿉니다.",
+        title: "다음 자동 확인 때 GS 를 다시 확인해 같으면 ‘일치’, 여전히 다르면 ‘미반영’으로 바꿉니다.",
         run: () => markMatchDone(p.id, note),
         ok: "처리 완료로 표시했습니다",
       })
     } else if (p.status === "unsure") {
-      hint = "AI 가 확신하지 못한 판정입니다. 근거 이미지를 보고 직접 정해 주세요."
+      hint = "AI 가 확신하지 못한 건입니다. 이미지를 보고 직접 정해 주세요."
       actions.push(fixToMatch("같은 상품으로 확정", "같은 상품으로 확정했습니다"))
       actions.push({
         label: "다름으로 확정",
@@ -696,8 +900,8 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
         run: () => decideMatchByHuman(p.id, "diff", note),
         ok: "다름으로 확정했습니다",
       })
-    } else if (p.status === "match" && detail.judged) {
-      hint = "판정이 틀렸다면 정정하세요."
+    } else if (p.status === "match" && judged) {
+      hint = "판정이 틀렸다면 정정해 주세요."
       actions.push({
         label: "다름으로 정정",
         variant: "outline",
@@ -707,28 +911,55 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
     }
   }
 
+  // 차이 — 번호는 판정 순서 그대로, 확신이 낮거나 재확인에서 엇갈린 것은 아래로 모은다.
+  const numbered = (judged?.verdict.differences ?? []).map((d, i) => ({ d, no: i + 1 }))
+  const strong = numbered.filter((x) => !isWeak(x.d))
+  const weak = numbered.filter((x) => isWeak(x.d))
+  const renderDiffs = (list: typeof numbered) => (
+    <ul className="space-y-3">
+      {list.map(({ d, no }) => (
+        <DifferenceCard key={no} d={d} no={no} onZoom={setZoom} />
+      ))}
+    </ul>
+  )
+
+  // 이미지
+  const thumbs = latest && {
+    cj: latest.cjThumbUrl ? [{ url: latest.cjThumbUrl, changed: !!latest.changes?.cjThumb }] : [],
+    gs: latest.gsThumbUrl ? [{ url: latest.gsThumbUrl, changed: !!latest.changes?.gsThumb }] : [],
+  }
+  const full = latest && {
+    cj: latest.cjDetail.map((d): Shot => ({ url: d.url, changed: !!d.changed })),
+    gs: latest.gsDetail.map((d): Shot => ({ url: d.url, changed: !!d.changed })),
+  }
+  const changedCount = full ? full.cj.filter((s) => s.changed).length + full.gs.filter((s) => s.changed).length : 0
+  // 전체 이미지는 근거로 충분하면 접어 둔다 — 근거가 없는 차이가 있거나 볼 근거가 아예 없으면 펼친다.
+  const fullOpen = numbered.length === 0 || numbered.some(({ d }) => (d.cjEvidence?.length ?? 0) + (d.gsEvidence?.length ?? 0) === 0)
+
   return (
     <>
       {/* 머리글(고정) — 무엇을 보고 있는지 · AI 판정 요약 · 이동 · 양쪽 상품 페이지 */}
       <SheetHeader className="shrink-0 gap-2 border-b bg-background pr-12">
         <SheetTitle className="flex flex-wrap items-center gap-2">
-          {p ? (
+          {head ? (
             <>
-              <span className="tabular-nums">{p.matCode}</span>
-              <span>{p.productName}</span>
-              <StatusBadge status={p.status} />
-              {p.humanDecidedAt && <Badge variant="outline">확인자 판정</Badge>}
+              <span className="tabular-nums">{head.matCode}</span>
+              <span>{head.productName}</span>
+              <StatusBadge status={head.status} />
+              {head.humanDecidedAt && <Badge variant="outline">확인자 판정</Badge>}
             </>
           ) : (
             "불러오는 중…"
           )}
         </SheetTitle>
         <SheetDescription>
-          {p
-            ? `마지막 확인 ${fmt(p.lastCheckedAt)} · 마지막 판정 ${fmt(p.lastJudgedAt)}${detail?.judged?.model ? ` (${detail.judged.model})` : ""}`
-            : " "}
+          {head ? `마지막 확인 ${fmt(head.lastCheckedAt)} · 마지막 판정 ${fmt(head.lastJudgedAt)}` : " "}
         </SheetDescription>
-        {detail?.judged && <VerdictSummary verdict={detail.judged.verdict} />}
+        {judged ? (
+          <VerdictSummary verdict={judged.verdict} />
+        ) : (
+          !detail && !loadError && <div className="h-5.5 w-2/3 animate-pulse rounded bg-muted" aria-hidden />
+        )}
         <div className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
           <Button variant="outline" size="sm" disabled={prevId == null} onClick={() => prevId != null && onNavigate(prevId)} title="이전 건 (←)">
             <ChevronLeftIcon />
@@ -744,10 +975,10 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
             </span>
           )}
           <span className="hidden text-xs sm:inline">키보드 ← → 로도 이동</span>
-          {p && (
+          {head && (
             <div className="ml-auto flex items-center gap-2">
-              <SideLink side="cj" href={p.cjUrl} />
-              <SideLink side="gs" href={p.gsUrl} />
+              <SideLink side="cj" href={head.cjUrl} />
+              <SideLink side="gs" href={head.gsUrl} />
             </div>
           )}
         </div>
@@ -758,90 +989,107 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
         {loadError && (
           <Alert variant="destructive" className="m-4 w-auto">
             <AlertTitle>불러오지 못했습니다</AlertTitle>
-            <AlertDescription>{loadError}</AlertDescription>
+            <AlertDescription>잠시 뒤 다시 열어 주세요. 계속되면 화면을 새로고침해 주세요.</AlertDescription>
           </Alert>
         )}
+        {!detail && !loadError && <BodySkeleton />}
 
         {detail && p && (
           <div className="space-y-6 p-4">
             {p.status === "done" && (
               <Alert>
-                <AlertTitle>처리 완료 — 다음 배치에서 확인합니다</AlertTitle>
+                <AlertTitle>처리 완료 — 다음 자동 확인 때 다시 확인합니다</AlertTitle>
                 {p.resolvedNote && <AlertDescription>메모: {p.resolvedNote}</AlertDescription>}
               </Alert>
             )}
             {detail.lastError && (
               <Alert variant="destructive">
-                <AlertTitle>마지막 수집 실패</AlertTitle>
-                <AlertDescription className="break-all">{detail.lastError}</AlertDescription>
+                <AlertTitle>마지막 확인 때 이미지를 가져오지 못했습니다</AlertTitle>
+                <AlertDescription>
+                  {friendlyFetchError(detail.lastError)}
+                  {latest && " 아래는 그 전에 가져온 이미지입니다."}
+                  <RawError text={detail.lastError} />
+                </AlertDescription>
               </Alert>
+            )}
+
+            {/* 썸네일 — 작게 두고 누르면 크게 */}
+            {thumbs && (
+              <section className="space-y-2">
+                <h3 className="text-sm font-medium">썸네일</h3>
+                <div className="flex flex-wrap gap-3">
+                  {SIDES.map((side) => (
+                    <div key={side} className="w-40 space-y-1">
+                      <SideTag side={side} />
+                      <ShotList shots={thumbs[side]} onOpen={() => setZoom({ title: "썸네일", ...thumbs })} />
+                    </div>
+                  ))}
+                </div>
+              </section>
             )}
 
             {/* AI 판정 — 요약은 머리글에, 여기는 차이별 근거 */}
             <section className="space-y-2">
               <h3 className="text-sm font-medium">
-                AI 판정 — 차이 {detail.judged?.verdict.differences.length ?? 0}건
-                {detail.judged && <span className="ml-2 text-xs font-normal text-muted-foreground">{fmt(detail.judged.judgedAt)}</span>}
+                {judged ? `AI 가 찾은 차이 ${numbered.length}건` : "AI 판정"}
+                {judged && <span className="ml-2 text-xs font-normal text-muted-foreground">{fmt(judged.judgedAt)} 판정 · 이미지를 누르면 크게 봅니다</span>}
               </h3>
-              {detail.judged ? (
-                detail.judged.verdict.differences.length > 0 && (
-                  <ul className="space-y-3">
-                    {detail.judged.verdict.differences.map((d, i) => (
-                      <DifferenceCard key={i} d={d} />
-                    ))}
-                  </ul>
-                )
-              ) : (
-                <p className="text-sm text-muted-foreground">아직 판정 전입니다.</p>
-              )}
+              {!judged && <p className="text-sm text-muted-foreground">아직 판정 전입니다.</p>}
+              {strong.length > 0 && renderDiffs(strong)}
+              {weak.length > 0 &&
+                (strong.length === 0 ? (
+                  renderDiffs(weak)
+                ) : (
+                  <Fold title={`확신이 낮거나 재확인에서 엇갈린 차이 ${weak.length}건`}>{renderDiffs(weak)}</Fold>
+                ))}
               {p.humanDecidedAt && (
                 <p className="text-xs text-muted-foreground">
-                  확인자가 {fmt(p.humanDecidedAt)}에 <b>{MATCH_STATUS_LABEL[p.status]}</b>(으)로 정했습니다. 판정 규칙이 바뀌어도 유지되고, 이미지가 바뀌면 AI 가 다시 판정합니다.
+                  확인자가 {fmt(p.humanDecidedAt)}에 <b>{MATCH_STATUS_LABEL[p.status]}</b>(으)로 정했습니다. 이 결정은 그대로 유지되고, 이미지가 바뀌면 AI 가 다시 판정합니다.
                 </p>
               )}
             </section>
 
-            {/* 이미지 비교 */}
-            {detail.latest ? (
-              <>
-                <section className="space-y-2">
-                  <h3 className="text-sm font-medium">썸네일</h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <ImageColumn side="cj" urls={detail.latest.cjThumbUrl ? [detail.latest.cjThumbUrl] : []} changed={[!!detail.latest.changes?.cjThumb]} />
-                    <ImageColumn side="gs" urls={detail.latest.gsThumbUrl ? [detail.latest.gsThumbUrl] : []} changed={[!!detail.latest.changes?.gsThumb]} />
-                  </div>
-                </section>
-                <section className="space-y-2">
-                  <h3 className="text-sm font-medium">
-                    상세 <span className="text-xs font-normal text-muted-foreground">(GS 공통 공지 {detail.latest.gsCommonCount}장 제외 · 수집 {fmt(detail.latest.checkedAt)})</span>
-                  </h3>
-                  {detail.latest.changes && (
-                    <p className="text-xs text-muted-foreground">
-                      {fmt(detail.latest.changes.since)} 판정 이후 —{" "}
-                      {(["cj", "gs"] as const)
-                        .map((side) => {
-                          const added = detail.latest![`${side}Detail`].filter((d) => d.changed).length
-                          const removed = detail.latest!.changes![`${side}Removed`]
-                          const thumb = detail.latest!.changes![`${side}Thumb`]
-                          const parts = [thumb && "썸네일 변경", added > 0 && `상세 새 이미지 ${added}장`, removed > 0 && `빠진 이미지 ${removed}장`].filter(Boolean)
-                          return `${side === "cj" ? "CJ" : "GS"}: ${parts.length ? parts.join(" · ") : "변경 없음"}`
-                        })
-                        .join(" / ")}
-                    </p>
-                  )}
-                  <div className="grid max-h-[80vh] grid-cols-2 gap-3 overflow-y-auto">
-                    <ImageColumn side="cj" meta={`${detail.latest.cjDetail.length}장`} urls={detail.latest.cjDetail.map((d) => d.url)} changed={detail.latest.cjDetail.map((d) => !!d.changed)} />
-                    <ImageColumn side="gs" meta={`${detail.latest.gsDetail.length}장`} urls={detail.latest.gsDetail.map((d) => d.url)} changed={detail.latest.gsDetail.map((d) => !!d.changed)} />
-                  </div>
-                </section>
-              </>
+            {/* 전체 이미지 — 근거로 충분하면 접어 둔다 */}
+            {latest && full ? (
+              <Fold
+                defaultOpen={fullOpen}
+                title={
+                  <>
+                    전체 상세 이미지 — CJ {full.cj.length}장 · GS {full.gs.length}장
+                    {changedCount > 0 && <Badge className="ml-1 bg-amber-500 text-white">변경 {changedCount}장</Badge>}
+                  </>
+                }
+              >
+                <p className="text-xs text-muted-foreground">
+                  {fmt(latest.checkedAt)}에 가져온 이미지입니다.
+                  {latest.gsCommonCount > 0 && ` GS 의 공통 안내 이미지 ${latest.gsCommonCount}장은 뺐습니다.`}
+                </p>
+                {latest.changes && (
+                  <p className="text-xs text-muted-foreground">
+                    {fmt(latest.changes.since)} 판정 이후 —{" "}
+                    {SIDES.map((side) => {
+                      const added = full[side].filter((s) => s.changed).length
+                      const removed = latest.changes![`${side}Removed`]
+                      const thumb = latest.changes![`${side}Thumb`]
+                      const parts = [thumb && "썸네일 변경", added > 0 && `새 상세 이미지 ${added}장`, removed > 0 && `빠진 이미지 ${removed}장`].filter(Boolean)
+                      return `${side === "cj" ? "CJ" : "GS"}: ${parts.length ? parts.join(" · ") : "변경 없음"}`
+                    }).join(" / ")}
+                  </p>
+                )}
+                <div className="grid grid-cols-2 items-start gap-3">
+                  {SIDES.map((side) => (
+                    <SidePanel key={side} side={side} meta={`${full[side].length}장`}>
+                      <ShotList shots={full[side]} onOpen={(index) => setZoom({ title: "전체 상세 이미지", ...full, focus: { side, index } })} />
+                    </SidePanel>
+                  ))}
+                </div>
+              </Fold>
             ) : (
-              <p className="text-sm text-muted-foreground">아직 정상 수집된 기록이 없습니다.</p>
+              <p className="text-sm text-muted-foreground">아직 가져온 이미지가 없습니다.</p>
             )}
 
             {/* 이력 */}
-            <section className="space-y-2">
-              <h3 className="text-sm font-medium">상태 이력</h3>
+            <Fold title={`상태 이력 ${detail.logs.length}건`}>
               <ul className="space-y-1 text-xs">
                 {detail.logs.map((l, i) => (
                   <li key={i} className="flex flex-wrap gap-x-2 text-muted-foreground">
@@ -851,16 +1099,12 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
                       {l.from && l.from !== l.to ? `${MATCH_STATUS_LABEL[l.from]} → ` : ""}
                       {MATCH_STATUS_LABEL[l.to]}
                     </span>
-                    <span>({{ batch: "배치", user: "사용자", upload: "업로드" }[l.actor] ?? l.actor})</span>
-                    {l.note && (
-                      <span className="line-clamp-2 break-all" title={l.note}>
-                        {l.note}
-                      </span>
-                    )}
+                    <span>({ACTOR_LABEL[l.actor] ?? "기타"})</span>
+                    {l.note && <span className="line-clamp-2 break-all">{friendlyLogNote(l.note, l.actor, l.to)}</span>}
                   </li>
                 ))}
               </ul>
-            </section>
+            </Fold>
 
             <div className="border-t pt-4">
               <Button variant="ghost" className="text-destructive" disabled={pending} onClick={() => setConfirmDelete(true)}>
@@ -897,12 +1141,14 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
         </div>
       )}
 
+      <ZoomDialog zoom={zoom} onClose={() => setZoom(null)} />
+
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>대조 대상에서 삭제할까요?</DialogTitle>
             <DialogDescription>
-              {p?.matCode} {p?.productName} — 수집·판정·상태 이력도 함께 지워지고 되돌릴 수 없습니다. 다시 확인하려면 엑셀로 다시 등록해야 합니다.
+              {p?.matCode} {p?.productName} — 그동안의 확인·판정 기록과 상태 이력도 함께 지워지며 되돌릴 수 없습니다. 다시 확인하려면 엑셀로 다시 등록해야 합니다.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -923,25 +1169,5 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
         </DialogContent>
       </Dialog>
     </>
-  )
-}
-
-/** 원본 URL 그대로 표시 — 이미지는 저장하지 않는다(설계 §3). */
-/** changed[i] = urls[i] 가 기준 판정 이후 새로 들어온(교체된) 이미지 — 테두리와 "변경" 표시를 붙인다. */
-function ImageColumn({ side, meta, urls, changed }: { side: Side; meta?: string; urls: string[]; changed?: boolean[] }) {
-  return (
-    <SidePanel side={side} meta={meta}>
-      {urls.length === 0 ? (
-        <p className="text-xs text-muted-foreground">이미지 없음</p>
-      ) : (
-        urls.map((u, i) => (
-          <div key={u} className="relative">
-            {/* eslint-disable-next-line @next/next/no-img-element -- 외부 쇼핑몰 원본 이미지를 그대로 보여준다(최적화·저장 불필요) */}
-            <img src={u} alt="" loading="lazy" className={cn("w-full border bg-white", changed?.[i] && "border-2 border-amber-500")} />
-            {changed?.[i] && <Badge className="absolute top-1 left-1 bg-amber-500 text-white">변경</Badge>}
-          </div>
-        ))
-      )}
-    </SidePanel>
   )
 }

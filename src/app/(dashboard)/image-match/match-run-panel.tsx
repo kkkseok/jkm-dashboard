@@ -17,6 +17,7 @@ import {
 import { getMatchRunProgress } from "@/lib/match/dashboard-actions"
 import { startMatchRun } from "@/lib/match/run-actions"
 import type { MatchRunSummary } from "@/lib/match/types"
+import { friendlyRunError } from "@/lib/match/wording"
 
 const koInt = new Intl.NumberFormat("ko-KR")
 const kstFmt = new Intl.DateTimeFormat("ko-KR", {
@@ -87,8 +88,8 @@ export function MatchRunPanel({ run: initialRun, pendingCount }: Props) {
       setRun((prev) => {
         if (prev?.running && next && !next.running && next.id === prev.id) {
           // 실행이 끝났다 — 목록·집계를 새로 읽는다.
-          if (next.error) toast.error(`배치가 오류와 함께 끝났습니다: ${next.error}`)
-          else toast.success(`배치 완료 — 판정 ${koInt.format(next.judged)}쌍`)
+          if (next.error) toast.error(`실행이 정상적으로 끝나지 않았습니다. ${friendlyRunError(next.error)}`)
+          else toast.success(`확인 완료 — 판정 ${koInt.format(next.judged)}건`)
           router.refresh()
         }
         return next
@@ -107,7 +108,7 @@ export function MatchRunPanel({ run: initialRun, pendingCount }: Props) {
         if (!w) return w
         if (next && next.id > w.afterId) return null
         if (Date.now() - w.since > START_WAIT_MS) {
-          toast.error("실행 요청 뒤 배치가 시작되지 않았습니다. GitHub Actions 의 image-match 실행 기록을 확인해 주세요.")
+          toast.error("실행을 요청했지만 시작되지 않았습니다. 잠시 뒤 다시 시도하고, 계속되면 관리자에게 문의해 주세요.")
           return null
         }
         return w
@@ -149,7 +150,7 @@ export function MatchRunPanel({ run: initialRun, pendingCount }: Props) {
           {running ? (
             <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
               <Loader2Icon className="size-4 animate-spin" />
-              배치 실행 중
+              확인 실행 중
             </span>
           ) : waiting ? (
             <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
@@ -158,15 +159,15 @@ export function MatchRunPanel({ run: initialRun, pendingCount }: Props) {
             </span>
           ) : (
             <>
-              마지막 배치 {run ? kstFmt.format(new Date(run.finishedAt ?? run.startedAt)) : "없음"}
+              마지막 실행 {run ? kstFmt.format(new Date(run.finishedAt ?? run.startedAt)) : "없음"}
               {run &&
-                ` · 수집 ${koInt.format(run.fetched)}/${koInt.format(run.total)}${run.failed ? ` · 실패 ${run.failed}` : ""} · 판정 ${koInt.format(run.judged)}${run.deferred ? ` · 다음으로 미룸 ${koInt.format(run.deferred)}` : ""}${run.judged ? ` · ${duration(run.elapsedSec)} 소요` : ""}`}
-              {run?.stalled && " · 중간에 끊김(끝난 판정은 저장됨)"}
+                ` · 이미지 수집 ${koInt.format(run.fetched)}/${koInt.format(run.total)}건${run.failed ? ` · 수집 실패 ${koInt.format(run.failed)}건` : ""} · 판정 ${koInt.format(run.judged)}건${run.deferred ? ` · 다음 실행으로 넘김 ${koInt.format(run.deferred)}건` : ""}${run.judged ? ` · ${duration(run.elapsedSec)} 소요` : ""}`}
+              {run?.stalled && " · 중간에 중단됨(끝난 판정은 저장됨)"}
             </>
           )}
           <span className="ml-2 text-xs">매일 03:00 자동 실행</span>
         </div>
-        <span className="text-sm tabular-nums text-muted-foreground">판정 전 {koInt.format(pendingCount)}쌍</span>
+        <span className="text-sm tabular-nums text-muted-foreground">판정 전 {koInt.format(pendingCount)}건</span>
         <Button onClick={() => setConfirm(true)} disabled={polling || submitting}>
           <PlayIcon />
           지금 판정 실행
@@ -190,13 +191,13 @@ export function MatchRunPanel({ run: initialRun, pendingCount }: Props) {
           </div>
           <p className="flex flex-wrap gap-x-3 text-sm tabular-nums">
             {collecting ? (
-              <span>이미지 수집 중 — 대상 {koInt.format(run.total)}쌍</span>
+              <span>이미지 수집 중 — 대상 {koInt.format(run.total)}건</span>
             ) : (
               <>
                 <span className="font-medium">
-                  판정 {koInt.format(run.judged)} / {koInt.format(run.toJudge)}쌍 ({pct}%)
+                  판정 {koInt.format(run.judged)} / {koInt.format(run.toJudge)}건 ({pct}%)
                 </span>
-                {run.failed > 0 && <span className="text-destructive">수집 실패 {run.failed}</span>}
+                {run.failed > 0 && <span className="text-destructive">수집 실패 {koInt.format(run.failed)}건</span>}
               </>
             )}
             <span className="text-muted-foreground">경과 {duration(run.elapsedSec)}</span>
@@ -205,7 +206,7 @@ export function MatchRunPanel({ run: initialRun, pendingCount }: Props) {
             )}
           </p>
           <p className="text-xs text-muted-foreground">
-            판정이 끝난 쌍은 바로 저장됩니다. 이 화면을 닫아도 실행은 계속되고, 새로고침하면 목록에 반영됩니다.
+            판정이 끝난 건은 바로 저장됩니다. 이 화면을 닫아도 실행은 계속되며, 새로고침하면 목록에 반영됩니다.
           </p>
         </div>
       )}
@@ -215,8 +216,8 @@ export function MatchRunPanel({ run: initialRun, pendingCount }: Props) {
           <DialogHeader>
             <DialogTitle>지금 판정을 실행할까요?</DialogTitle>
             <DialogDescription>
-              전체 대상을 다시 수집하고, 판정 전이거나 이미지가 바뀐 쌍을 한 번에 판정합니다(판정 전 {koInt.format(pendingCount)}쌍).
-              판정은 Claude 구독 사용량을 쓰며, 한도에 닿으면 남은 쌍은 다음 실행으로 넘어갑니다.
+              전체 대상의 이미지를 다시 가져오고, 아직 판정하지 않았거나 이미지가 바뀐 건을 한 번에 판정합니다(판정 전 {koInt.format(pendingCount)}건).
+              한 번에 다 판정하지 못하면 남은 건은 다음 실행으로 넘어갑니다.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
