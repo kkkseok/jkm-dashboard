@@ -20,7 +20,7 @@ import { RUN_STALE_HOURS, type MatchRunStartResult } from './types'
 const REPO = 'kkkseok/jkm-dashboard'
 const WORKFLOW = 'image-match.yml'
 const REF = 'main'
-/** 한 번에 판정할 상한 — 등록된 쌍 전체를 덮는 값. 예약 배치(매일 03:00)는 run.ts 기본값을 쓴다. */
+/** 한 번에 판정할 상한 — 등록된 쌍 전체를 덮는 값(run.ts 기본값과 같다). */
 const RUN_ALL_LIMIT = 1000
 /** GitHub 에서 아직 끝나지 않은 실행 상태. */
 const ACTIVE = new Set(['queued', 'in_progress', 'requested', 'waiting', 'pending'])

@@ -13,7 +13,7 @@
  *   --full         상세 이미지 URL 캐시를 쓰지 않고 전부 다시 내려받는다
  *   --no-judge     수집·게이트만 (판정 필요 쌍은 다음 실행으로 미룸)
  *   --judge-model  판정 모델 (기본 MATCH_JUDGE_MODEL 또는 sonnet)
- *   --judge-limit  1회 판정 상한 (기본 MATCH_JUDGE_LIMIT 또는 30) — 넘는 쌍은 다음 실행으로
+ *   --judge-limit  1회 판정 상한 (기본 MATCH_JUDGE_LIMIT 또는 1000 = 사실상 전체) — 넘는 쌍은 다음 실행으로
  * 환경변수: DATABASE_URL_UNPOOLED (Supabase Session Pooler 5432)
  *           판정 인증은 Claude Code 구독(로컬 로그인 / Actions 는 CLAUDE_CODE_OAUTH_TOKEN)
  *
@@ -62,9 +62,14 @@ const TIMEOUT_MS = 20_000
 const RETRIES = 2
 /** 공통 이미지: 활성 GS 상품의 30% 이상(최소 3개)에 등장. 수집 상품이 적으면 DB 목록 사용. */
 const COMMON = { ratio: 0.3, minCount: 3, minProducts: 10 }
-/** AI 판정 — 구독 사용량을 평소 대화형 사용과 공유하므로 1회 상한을 둔다. 첫 500쌍 기준 판정은 며칠에 나눠 진행. */
+/**
+ * AI 판정 — 1회 상한. 대기 중인 쌍을 한 번에 판정하도록 등록 규모(약 500쌍)를 덮는 값으로 둔다.
+ * 실측(2026-11-26, 150쌍): 쌍당 토큰 약 2만 2천, Max 구독 5시간 세션의 약 11%p·주간의 약 1%p(상한 추정)
+ * → 484쌍 전체를 다시 판정해도 세션의 35%p 안팎. 한도에 닿으면 판정을 멈추고 남은 쌍은 다음 실행이 이어간다.
+ * 줄이려면 --judge-limit 또는 MATCH_JUDGE_LIMIT.
+ */
 const DEFAULT_JUDGE_MODEL = 'sonnet'
-const DEFAULT_JUDGE_LIMIT = 30
+const DEFAULT_JUDGE_LIMIT = 1000
 const JUDGE_CONCURRENCY = 2
 
 type DetailImage = DetailImageRef & { hash: string | null; common?: boolean }

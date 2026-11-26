@@ -38,7 +38,7 @@ on:
       judge_limit:
         description: '1회 판정 상한 (쌍)'
         required: false
-        default: '30'
+        default: '1000'
 
 # 같은 배치가 겹쳐 돌지 않게 (상태 전이가 꼬인다).
 concurrency:
