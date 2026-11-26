@@ -62,7 +62,7 @@ import {
 import { MatchRunPanel } from "./match-run-panel"
 import { MatchUploadDialog } from "./match-upload-dialog"
 import type { EvidenceCrop } from "@/lib/match/evidence"
-import type { Confidence, VerdictDifference } from "@/lib/match/judge-rules"
+import type { Confidence, Verdict, VerdictDifference } from "@/lib/match/judge-rules"
 
 const koInt = new Intl.NumberFormat("ko-KR")
 /** 서버(UTC)·브라우저 어디서 렌더해도 같은 문자열이 나오게 KST 고정. */
@@ -426,16 +426,105 @@ function BatchStatus({ data, stale }: Props) {
 
 const AREA_LABEL = { thumbnail: "썸네일", detail: "상세" } as const
 const VERDICT_LABEL = { same: "일치", diff: "다름", unsure: "판단 보류" } as const
+/** 머리글 판정 요약 칩 색 — 목록의 상태 배지와 같은 규칙(다름=빨강, 보류=주황). */
+const VERDICT_CLASS: Record<keyof typeof VERDICT_LABEL, string> = {
+  same: "border-border text-muted-foreground",
+  diff: "border-transparent bg-destructive/10 text-destructive",
+  unsure: "border-transparent bg-warning/15 text-warning",
+}
 const CONFIDENCE_LABEL: Record<Confidence, { label: string; className: string }> = {
   high: { label: "확신 높음", className: "bg-destructive/10 text-destructive" },
   medium: { label: "확신 보통", className: "bg-warning/15 text-warning" },
   low: { label: "확신 낮음", className: "bg-muted text-muted-foreground" },
 }
 
-/** 차이 1건 — 설명 + CJ·GS 의 해당 부분 이미지(근거)를 나란히. */
+/**
+ * CJ·GS 구분 색 — 상세 창 어디서든 같은 쪽은 같은 색(CJ 보라 / GS 청록)으로 보이게 한 곳에서 정한다.
+ * 상태 색(빨강·주황)·변경 표시(amber)와 겹치지 않는 색을 쓴다.
+ */
+const SIDE = {
+  cj: {
+    label: "CJ 원본",
+    tag: "bg-violet-600 text-white",
+    band: "bg-violet-50 dark:bg-violet-950",
+    border: "border-violet-400/70",
+    link: "border-violet-400/70 text-violet-700 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-950",
+  },
+  gs: {
+    label: "GS",
+    tag: "bg-teal-600 text-white",
+    band: "bg-teal-50 dark:bg-teal-950",
+    border: "border-teal-400/70",
+    link: "border-teal-400/70 text-teal-700 hover:bg-teal-50 dark:text-teal-300 dark:hover:bg-teal-950",
+  },
+} as const
+type Side = keyof typeof SIDE
+
+function SideTag({ side }: { side: Side }) {
+  return (
+    <span className={cn("inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-xs font-semibold", SIDE[side].tag)}>
+      {SIDE[side].label}
+    </span>
+  )
+}
+
+/** 상품 페이지 새 창 링크 — 쪽 색 테두리. */
+function SideLink({ side, href }: { side: Side; href: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className={cn("inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium transition-colors", SIDE[side].link)}
+    >
+      {SIDE[side].label} 페이지
+      <ExternalLinkIcon className="size-3" />
+    </a>
+  )
+}
+
+/**
+ * 한쪽(CJ 또는 GS) 내용을 담는 칸 — 위에 쪽 색 띠와 이름표를 붙인다.
+ * 이름표는 스크롤 영역 안에서 위에 붙어 있어, 긴 이미지를 내려 보는 중에도 어느 쪽인지 보인다.
+ */
+function SidePanel({ side, meta, children }: { side: Side; meta?: React.ReactNode; children: React.ReactNode }) {
+  const s = SIDE[side]
+  return (
+    <div className={cn("min-w-0 rounded-lg border border-t-4", s.border)}>
+      <div className={cn("sticky top-0 z-1 flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground", s.band)}>
+        <SideTag side={side} />
+        {meta}
+      </div>
+      <div className="space-y-1 p-2">{children}</div>
+    </div>
+  )
+}
+
+/** 머리글의 판정 요약 — 썸네일·상세 결과 칩 + 한 줄 요약. */
+function VerdictSummary({ verdict }: { verdict: Verdict }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      {(["thumbnail", "detail"] as const).map((area) => {
+        const v = verdict[area]
+        const count = verdict.differences.filter((d) => d.area === area).length
+        return (
+          <Badge key={area} variant="outline" className={VERDICT_CLASS[v]}>
+            {AREA_LABEL[area]} {VERDICT_LABEL[v]}
+            {count > 0 && ` · ${count}건`}
+          </Badge>
+        )
+      })}
+      <span className="line-clamp-2 min-w-0 flex-1 basis-64 text-foreground" title={verdict.summary}>
+        {verdict.summary}
+      </span>
+    </div>
+  )
+}
+
 /** 근거 재검증 결과 라벨 (근거 부분만 다시 본 2차 확인). */
 const VERIFY_LABEL = { confirmed: "차이 확인됨", rejected: "1차 판정과 엇갈림", unsure: "근거로 확인 불가" } as const
 
+/** 차이 1건 — 설명 + CJ·GS 의 해당 부분 이미지(근거)를 쪽별 칸에 나란히. */
 function DifferenceCard({ d }: { d: VerdictDifference }) {
   const conf = CONFIDENCE_LABEL[d.confidence ?? "high"]
   const hasEvidence = (d.cjEvidence?.length ?? 0) + (d.gsEvidence?.length ?? 0) > 0
@@ -456,22 +545,17 @@ function DifferenceCard({ d }: { d: VerdictDifference }) {
           </span>
         )}
       </div>
-      <div className="grid grid-cols-2 gap-3 text-xs">
-        <div>
-          <div className="mb-1 text-muted-foreground">CJ (원본)</div>
-          <p>{d.cj}</p>
-        </div>
-        <div>
-          <div className="mb-1 text-muted-foreground">GS</div>
-          <p>{d.gs}</p>
-        </div>
+      <div className={cn("grid grid-cols-2 gap-3", hasEvidence && "max-h-[560px] overflow-y-auto")}>
+        <SidePanel side="cj">
+          <p className="text-xs">{d.cj}</p>
+          {d.cjEvidence?.map((c, i) => <EvidenceImage key={i} crop={c} />)}
+        </SidePanel>
+        <SidePanel side="gs">
+          <p className="text-xs">{d.gs}</p>
+          {d.gsEvidence?.map((c, i) => <EvidenceImage key={i} crop={c} />)}
+        </SidePanel>
       </div>
-      {hasEvidence ? (
-        <div className="grid max-h-[520px] grid-cols-2 gap-3 overflow-y-auto">
-          <div className="space-y-1">{d.cjEvidence?.map((c, i) => <EvidenceImage key={i} crop={c} />)}</div>
-          <div className="space-y-1">{d.gsEvidence?.map((c, i) => <EvidenceImage key={i} crop={c} />)}</div>
-        </div>
-      ) : (
+      {!hasEvidence && (
         <p className="text-xs text-muted-foreground">근거 이미지 위치가 없습니다(이전 형식 판정). 아래 전체 이미지에서 확인해 주세요.</p>
       )}
     </li>
@@ -505,12 +589,22 @@ function PairSheet({ pairId, ...nav }: { pairId: number | null } & PairNav) {
   const { onClose } = nav
   return (
     <Sheet open={pairId != null} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full gap-0 overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-5xl">
-        {/* key: 다른 쌍을 열면 본문 상태(상세·메모)를 새로 시작한다 */}
+      {/* 창 자체는 스크롤하지 않는다 — 머리글·아래 조치 바는 고정하고 가운데 본문만 스크롤한다. */}
+      <SheetContent className="w-full gap-0 overflow-hidden data-[side=right]:w-full data-[side=right]:sm:max-w-5xl">
+        {/* key: 다른 쌍을 열면 본문 상태(상세·메모·스크롤 위치)를 새로 시작한다 */}
         {pairId != null && <PairSheetBody key={pairId} pairId={pairId} {...nav} />}
       </SheetContent>
     </Sheet>
   )
+}
+
+/** 아래 조치 바에 놓을 버튼 1개. */
+type PairAction = {
+  label: string
+  variant: "default" | "outline" | "destructive"
+  title?: string
+  run: () => Promise<void>
+  ok: string
 }
 
 function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } & PairNav) {
@@ -519,14 +613,10 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
   const pos = ids.indexOf(pairId)
   const prevId = pos > 0 ? ids[pos - 1] : null
   const nextId = pos >= 0 && pos < ids.length - 1 ? ids[pos + 1] : null
-  const topRef = React.useRef<HTMLDivElement>(null)
-  // 다른 쌍으로 넘어오면 창을 맨 위부터 보여준다(스크롤 영역은 쌍이 바뀌어도 그대로라서).
-  React.useEffect(() => {
-    topRef.current?.scrollIntoView({ block: "start" })
-  }, [])
   const [detail, setDetail] = React.useState<MatchPairDetail | null>(null)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [note, setNote] = React.useState("")
+  const [memoOpen, setMemoOpen] = React.useState(false)
   const [pending, startTransition] = React.useTransition()
   const [confirmDelete, setConfirmDelete] = React.useState(false)
 
@@ -539,6 +629,23 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
       cancelled = true
     }
   }, [pairId])
+
+  // ← → 로 이전·다음 건 이동. 메모 등 입력 중이거나 처리·삭제 확인 중에는 끼어들지 않는다.
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+      if (pending || confirmDelete) return
+      const t = e.target
+      if (t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return
+      const to = e.key === "ArrowLeft" ? prevId : e.key === "ArrowRight" ? nextId : null
+      if (to == null) return
+      e.preventDefault()
+      onNavigate(to)
+    }
+    // 캡처 단계 — 대화창(base-ui)이 안쪽 키 입력의 전파를 막아 버블 단계에서는 받지 못한다.
+    window.addEventListener("keydown", onKey, true)
+    return () => window.removeEventListener("keydown", onKey, true)
+  }, [prevId, nextId, onNavigate, pending, confirmDelete])
 
   function run(action: () => Promise<void>, ok: string) {
     startTransition(async () => {
@@ -557,45 +664,97 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
 
   const p = detail?.pair
 
+  // 상태별 조치 — 아래 고정 바 한 곳에 모은다(처리 완료·보류 확정·AI 판정 정정).
+  let hint = ""
+  const actions: PairAction[] = []
+  if (detail && p) {
+    const fixToMatch = (label: string, ok: string): PairAction => ({
+      label,
+      variant: "outline",
+      run: () => decideMatchByHuman(p.id, "match", note),
+      ok,
+    })
+    if (p.status === "diff" || p.status === "unfixed") {
+      hint =
+        p.status === "unfixed"
+          ? "처리 완료로 표시했지만 다음 확인에서도 다릅니다."
+          : "GS 를 원본에 맞게 고친 뒤 처리 완료로 표시하세요."
+      if (detail.judged) actions.push(fixToMatch("같은 상품으로 정정", "같은 상품으로 정정했습니다"))
+      actions.push({
+        label: "처리 완료",
+        variant: "default",
+        title: "다음 배치가 GS 를 다시 확인해 일치면 ‘일치’, 여전히 다르면 ‘미반영’으로 바꿉니다.",
+        run: () => markMatchDone(p.id, note),
+        ok: "처리 완료로 표시했습니다",
+      })
+    } else if (p.status === "unsure") {
+      hint = "AI 가 확신하지 못한 판정입니다. 근거 이미지를 보고 직접 정해 주세요."
+      actions.push(fixToMatch("같은 상품으로 확정", "같은 상품으로 확정했습니다"))
+      actions.push({
+        label: "다름으로 확정",
+        variant: "destructive",
+        run: () => decideMatchByHuman(p.id, "diff", note),
+        ok: "다름으로 확정했습니다",
+      })
+    } else if (p.status === "match" && detail.judged) {
+      hint = "판정이 틀렸다면 정정하세요."
+      actions.push({
+        label: "다름으로 정정",
+        variant: "outline",
+        run: () => decideMatchByHuman(p.id, "diff", note),
+        ok: "다름으로 정정했습니다",
+      })
+    }
+  }
+
   return (
     <>
-        <div ref={topRef} />
-        {/* 이미지를 내려 보다가도 이전·다음으로 넘어갈 수 있게 머리글을 고정한다. */}
-        <SheetHeader className="sticky top-0 z-10 border-b bg-background">
-          <SheetTitle className="flex flex-wrap items-center gap-2">
-            {p ? (
-              <>
-                <span className="tabular-nums">{p.matCode}</span>
-                <span>{p.productName}</span>
-                <StatusBadge status={p.status} />
-                {p.humanDecidedAt && <Badge variant="outline">확인자 판정</Badge>}
-              </>
-            ) : (
-              "불러오는 중…"
-            )}
-          </SheetTitle>
-          <SheetDescription>
-            {p
-              ? `마지막 확인 ${fmt(p.lastCheckedAt)} · 마지막 판정 ${fmt(p.lastJudgedAt)}${detail?.judged?.model ? ` (${detail.judged.model})` : ""}`
-              : " "}
-          </SheetDescription>
-          <div className="flex items-center gap-1 pt-1 text-sm text-muted-foreground">
-            <Button variant="outline" size="sm" disabled={prevId == null} onClick={() => prevId != null && onNavigate(prevId)}>
-              <ChevronLeftIcon />
-              이전 건
-            </Button>
-            <Button variant="outline" size="sm" disabled={nextId == null} onClick={() => nextId != null && onNavigate(nextId)}>
-              다음 건
-              <ChevronRightIcon />
-            </Button>
-            {pos >= 0 && (
-              <span className="px-2 tabular-nums">
-                {koInt.format(pos + 1)} / {koInt.format(ids.length)}
-              </span>
-            )}
-          </div>
-        </SheetHeader>
+      {/* 머리글(고정) — 무엇을 보고 있는지 · AI 판정 요약 · 이동 · 양쪽 상품 페이지 */}
+      <SheetHeader className="shrink-0 gap-2 border-b bg-background pr-12">
+        <SheetTitle className="flex flex-wrap items-center gap-2">
+          {p ? (
+            <>
+              <span className="tabular-nums">{p.matCode}</span>
+              <span>{p.productName}</span>
+              <StatusBadge status={p.status} />
+              {p.humanDecidedAt && <Badge variant="outline">확인자 판정</Badge>}
+            </>
+          ) : (
+            "불러오는 중…"
+          )}
+        </SheetTitle>
+        <SheetDescription>
+          {p
+            ? `마지막 확인 ${fmt(p.lastCheckedAt)} · 마지막 판정 ${fmt(p.lastJudgedAt)}${detail?.judged?.model ? ` (${detail.judged.model})` : ""}`
+            : " "}
+        </SheetDescription>
+        {detail?.judged && <VerdictSummary verdict={detail.judged.verdict} />}
+        <div className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
+          <Button variant="outline" size="sm" disabled={prevId == null} onClick={() => prevId != null && onNavigate(prevId)} title="이전 건 (←)">
+            <ChevronLeftIcon />
+            이전 건
+          </Button>
+          <Button variant="outline" size="sm" disabled={nextId == null} onClick={() => nextId != null && onNavigate(nextId)} title="다음 건 (→)">
+            다음 건
+            <ChevronRightIcon />
+          </Button>
+          {pos >= 0 && (
+            <span className="px-2 tabular-nums">
+              {koInt.format(pos + 1)} / {koInt.format(ids.length)}
+            </span>
+          )}
+          <span className="hidden text-xs sm:inline">키보드 ← → 로도 이동</span>
+          {p && (
+            <div className="ml-auto flex items-center gap-2">
+              <SideLink side="cj" href={p.cjUrl} />
+              <SideLink side="gs" href={p.gsUrl} />
+            </div>
+          )}
+        </div>
+      </SheetHeader>
 
+      {/* 본문 — 여기만 스크롤 */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {loadError && (
           <Alert variant="destructive" className="m-4 w-auto">
             <AlertTitle>불러오지 못했습니다</AlertTitle>
@@ -605,40 +764,11 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
 
         {detail && p && (
           <div className="space-y-6 p-4">
-            {/* 조치 */}
-            {(p.status === "diff" || p.status === "unfixed") && (
-              <section className="space-y-2 rounded-lg border bg-muted/30 p-3">
-                <h3 className="text-sm font-medium">
-                  {p.status === "unfixed" ? "처리 완료로 표시했지만 다음 확인에서도 다릅니다." : "GS 를 원본에 맞게 고친 뒤 처리 완료로 표시하세요."}
-                </h3>
-                <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="메모 (선택) — 예: 썸네일·상세 교체 요청 완료" rows={2} />
-                <p className="text-xs text-muted-foreground">다음 배치가 GS 를 다시 확인해 일치면 &lsquo;일치&rsquo;, 여전히 다르면 &lsquo;미반영&rsquo;으로 바꿉니다.</p>
-                <Button disabled={pending} onClick={() => run(() => markMatchDone(p.id, note), "처리 완료로 표시했습니다")}>
-                  처리 완료
-                </Button>
-              </section>
-            )}
             {p.status === "done" && (
               <Alert>
                 <AlertTitle>처리 완료 — 다음 배치에서 확인합니다</AlertTitle>
                 {p.resolvedNote && <AlertDescription>메모: {p.resolvedNote}</AlertDescription>}
               </Alert>
-            )}
-            {p.status === "unsure" && (
-              <section className="space-y-2 rounded-lg border border-warning/40 bg-warning/5 p-3">
-                <h3 className="text-sm font-medium">
-                  AI 가 확신하지 못한 판정입니다. 아래 근거 이미지를 보고 직접 정해 주세요.
-                </h3>
-                <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="메모 (선택)" rows={2} />
-                <div className="flex gap-2">
-                  <Button variant="outline" disabled={pending} onClick={() => run(() => decideMatchByHuman(p.id, "match", note), "같은 상품으로 확정했습니다")}>
-                    같은 상품으로 확정
-                  </Button>
-                  <Button variant="destructive" disabled={pending} onClick={() => run(() => decideMatchByHuman(p.id, "diff", note), "다름으로 확정했습니다")}>
-                    다름으로 확정
-                  </Button>
-                </div>
-              </section>
             )}
             {detail.lastError && (
               <Alert variant="destructive">
@@ -647,24 +777,20 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
               </Alert>
             )}
 
-            {/* AI 판정 */}
+            {/* AI 판정 — 요약은 머리글에, 여기는 차이별 근거 */}
             <section className="space-y-2">
-              <h3 className="text-sm font-medium">AI 판정</h3>
+              <h3 className="text-sm font-medium">
+                AI 판정 — 차이 {detail.judged?.verdict.differences.length ?? 0}건
+                {detail.judged && <span className="ml-2 text-xs font-normal text-muted-foreground">{fmt(detail.judged.judgedAt)}</span>}
+              </h3>
               {detail.judged ? (
-                <>
-                  <p className="text-sm">
-                    썸네일 <b>{VERDICT_LABEL[detail.judged.verdict.thumbnail]}</b> · 상세{" "}
-                    <b>{VERDICT_LABEL[detail.judged.verdict.detail]}</b> — {detail.judged.verdict.summary}
-                    <span className="ml-2 text-xs text-muted-foreground">{fmt(detail.judged.judgedAt)}</span>
-                  </p>
-                  {detail.judged.verdict.differences.length > 0 && (
-                    <ul className="space-y-3">
-                      {detail.judged.verdict.differences.map((d, i) => (
-                        <DifferenceCard key={i} d={d} />
-                      ))}
-                    </ul>
-                  )}
-                </>
+                detail.judged.verdict.differences.length > 0 && (
+                  <ul className="space-y-3">
+                    {detail.judged.verdict.differences.map((d, i) => (
+                      <DifferenceCard key={i} d={d} />
+                    ))}
+                  </ul>
+                )
               ) : (
                 <p className="text-sm text-muted-foreground">아직 판정 전입니다.</p>
               )}
@@ -672,20 +798,6 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
                 <p className="text-xs text-muted-foreground">
                   확인자가 {fmt(p.humanDecidedAt)}에 <b>{MATCH_STATUS_LABEL[p.status]}</b>(으)로 정했습니다. 판정 규칙이 바뀌어도 유지되고, 이미지가 바뀌면 AI 가 다시 판정합니다.
                 </p>
-              )}
-              {(p.status === "match" || p.status === "diff" || p.status === "unfixed") && detail.judged && (
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <span className="text-xs text-muted-foreground">판정이 틀렸나요?</span>
-                  {p.status === "match" ? (
-                    <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => decideMatchByHuman(p.id, "diff", note), "다름으로 정정했습니다")}>
-                      다름으로 정정
-                    </Button>
-                  ) : (
-                    <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => decideMatchByHuman(p.id, "match", note), "같은 상품으로 정정했습니다")}>
-                      같은 상품으로 정정
-                    </Button>
-                  )}
-                </div>
               )}
             </section>
 
@@ -695,8 +807,8 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
                 <section className="space-y-2">
                   <h3 className="text-sm font-medium">썸네일</h3>
                   <div className="grid grid-cols-2 gap-3">
-                    <ImageColumn title="CJ (원본)" href={p.cjUrl} urls={detail.latest.cjThumbUrl ? [detail.latest.cjThumbUrl] : []} changed={[!!detail.latest.changes?.cjThumb]} />
-                    <ImageColumn title="GS" href={p.gsUrl} urls={detail.latest.gsThumbUrl ? [detail.latest.gsThumbUrl] : []} changed={[!!detail.latest.changes?.gsThumb]} />
+                    <ImageColumn side="cj" urls={detail.latest.cjThumbUrl ? [detail.latest.cjThumbUrl] : []} changed={[!!detail.latest.changes?.cjThumb]} />
+                    <ImageColumn side="gs" urls={detail.latest.gsThumbUrl ? [detail.latest.gsThumbUrl] : []} changed={[!!detail.latest.changes?.gsThumb]} />
                   </div>
                 </section>
                 <section className="space-y-2">
@@ -717,9 +829,9 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
                         .join(" / ")}
                     </p>
                   )}
-                  <div className="grid max-h-[80vh] grid-cols-2 gap-3 overflow-y-auto rounded-lg border p-2">
-                    <ImageColumn title={`CJ ${detail.latest.cjDetail.length}장`} urls={detail.latest.cjDetail.map((d) => d.url)} changed={detail.latest.cjDetail.map((d) => !!d.changed)} />
-                    <ImageColumn title={`GS ${detail.latest.gsDetail.length}장`} urls={detail.latest.gsDetail.map((d) => d.url)} changed={detail.latest.gsDetail.map((d) => !!d.changed)} />
+                  <div className="grid max-h-[80vh] grid-cols-2 gap-3 overflow-y-auto">
+                    <ImageColumn side="cj" meta={`${detail.latest.cjDetail.length}장`} urls={detail.latest.cjDetail.map((d) => d.url)} changed={detail.latest.cjDetail.map((d) => !!d.changed)} />
+                    <ImageColumn side="gs" meta={`${detail.latest.gsDetail.length}장`} urls={detail.latest.gsDetail.map((d) => d.url)} changed={detail.latest.gsDetail.map((d) => !!d.changed)} />
                   </div>
                 </section>
               </>
@@ -757,49 +869,68 @@ function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } 
             </div>
           </div>
         )}
+      </div>
 
-        <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>대조 대상에서 삭제할까요?</DialogTitle>
-              <DialogDescription>
-                {p?.matCode} {p?.productName} — 수집·판정·상태 이력도 함께 지워지고 되돌릴 수 없습니다. 다시 확인하려면 엑셀로 다시 등록해야 합니다.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setConfirmDelete(false)}>
-                취소
+      {/* 조치 바(고정) — 근거를 어디까지 내려 보고 있든 바로 판단할 수 있게 */}
+      {actions.length > 0 && (
+        <div className="shrink-0 space-y-2 border-t bg-background p-3">
+          {memoOpen && (
+            <Textarea
+              autoFocus
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="메모 (선택) — 예: 썸네일·상세 교체 요청 완료"
+              rows={2}
+            />
+          )}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <p className="mr-auto min-w-0 text-xs text-muted-foreground">{hint}</p>
+            <Button variant="ghost" size="sm" onClick={() => setMemoOpen((o) => !o)}>
+              {memoOpen ? "메모 닫기" : note.trim() ? "메모 있음 · 수정" : "메모 추가"}
+            </Button>
+            {actions.map((a) => (
+              <Button key={a.label} variant={a.variant} disabled={pending} title={a.title} onClick={() => run(a.run, a.ok)}>
+                {a.label}
               </Button>
-              <Button
-                variant="destructive"
-                disabled={pending || !p}
-                onClick={() => {
-                  setConfirmDelete(false)
-                  if (p) run(() => deleteMatchPair(p.id), "삭제했습니다")
-                }}
-              >
-                삭제
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>대조 대상에서 삭제할까요?</DialogTitle>
+            <DialogDescription>
+              {p?.matCode} {p?.productName} — 수집·판정·상태 이력도 함께 지워지고 되돌릴 수 없습니다. 다시 확인하려면 엑셀로 다시 등록해야 합니다.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDelete(false)}>
+              취소
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={pending || !p}
+              onClick={() => {
+                setConfirmDelete(false)
+                if (p) run(() => deleteMatchPair(p.id), "삭제했습니다")
+              }}
+            >
+              삭제
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
 
 /** 원본 URL 그대로 표시 — 이미지는 저장하지 않는다(설계 §3). */
 /** changed[i] = urls[i] 가 기준 판정 이후 새로 들어온(교체된) 이미지 — 테두리와 "변경" 표시를 붙인다. */
-function ImageColumn({ title, urls, href, changed }: { title: string; urls: string[]; href?: string; changed?: boolean[] }) {
+function ImageColumn({ side, meta, urls, changed }: { side: Side; meta?: string; urls: string[]; changed?: boolean[] }) {
   return (
-    <div className="min-w-0 space-y-1">
-      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-        {title}
-        {href && (
-          <a href={href} target="_blank" rel="noreferrer" className="inline-flex items-center hover:text-foreground" aria-label={`${title} 상품 페이지 열기`}>
-            <ExternalLinkIcon className="size-3" />
-          </a>
-        )}
-      </div>
+    <SidePanel side={side} meta={meta}>
       {urls.length === 0 ? (
         <p className="text-xs text-muted-foreground">이미지 없음</p>
       ) : (
@@ -811,6 +942,6 @@ function ImageColumn({ title, urls, href, changed }: { title: string; urls: stri
           </div>
         ))
       )}
-    </div>
+    </SidePanel>
   )
 }
