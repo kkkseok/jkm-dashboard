@@ -19,7 +19,7 @@ import {
 /**
  * 이미지 대조 대시보드(/image-match) Server Action.
  *
- * 읽기: 목록·상태 집계·배치 현황·일별 토큰 사용량 / 쌍 상세(최근 수집·판정·이력).
+ * 읽기: 목록·상태 집계·배치 현황 / 쌍 상세(최근 수집·판정·이력).
  * 쓰기: 사용자 상태 전이 — 처리 완료, 판정 보류 확정, 삭제. 전이 가능 여부는 서버에서 다시 검사한다.
  * 상태 규칙: _workspace/01_design_image_match.md §5.
  */
@@ -61,8 +61,6 @@ async function latestRun(): Promise<MatchRunSummary | null> {
     elapsedSec,
     running: open && fresh,
     stalled: open && !fresh,
-    tokens: r.inputTokens + r.cacheCreationTokens + r.cacheReadTokens + r.outputTokens,
-    apiEquivUsd: Number(r.apiEquivUsd),
   }
 }
 
@@ -70,9 +68,6 @@ async function latestRun(): Promise<MatchRunSummary | null> {
 export async function getMatchRunProgress(): Promise<MatchRunSummary | null> {
   return latestRun()
 }
-
-/** 사용량 패널 기간(일). */
-const USAGE_DAYS = 30
 
 export async function getMatchDashboard(): Promise<MatchDashboard> {
   const pairs = await db.select().from(matchPair).orderBy(matchPair.matCode)
@@ -104,21 +99,6 @@ export async function getMatchDashboard(): Promise<MatchDashboard> {
     .orderBy(desc(matchRun.id))
     .limit(1)
 
-  const day = sql<string>`to_char(${matchRun.startedAt} at time zone 'Asia/Seoul', 'YYYY-MM-DD')`
-  const usage = await db
-    .select({
-      date: day,
-      runs: sql<number>`count(*)::int`,
-      judged: sql<number>`coalesce(sum(${matchRun.judged}), 0)::int`,
-      inputTokens: sql<number>`coalesce(sum(${matchRun.inputTokens} + ${matchRun.cacheCreationTokens} + ${matchRun.cacheReadTokens}), 0)::bigint`,
-      outputTokens: sql<number>`coalesce(sum(${matchRun.outputTokens}), 0)::bigint`,
-      apiEquivUsd: sql<number>`coalesce(sum(${matchRun.apiEquivUsd}), 0)::float8`,
-    })
-    .from(matchRun)
-    .where(sql`${matchRun.startedAt} >= now() - make_interval(days => ${USAGE_DAYS})`)
-    .groupBy(day)
-    .orderBy(desc(day))
-
   return {
     rows,
     byStatus,
@@ -126,12 +106,6 @@ export async function getMatchDashboard(): Promise<MatchDashboard> {
     lastSuccessAt: iso(lastOk?.finishedAt ?? null),
     hoursSinceSuccess: lastOk ? Number(lastOk.hours) : null,
     lastRegisteredAt: iso(lastRegisteredAt),
-    usage: usage.map((u) => ({
-      ...u,
-      inputTokens: Number(u.inputTokens),
-      outputTokens: Number(u.outputTokens),
-      apiEquivUsd: Number(u.apiEquivUsd),
-    })),
   }
 }
 

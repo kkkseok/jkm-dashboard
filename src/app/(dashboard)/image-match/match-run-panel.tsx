@@ -160,7 +160,7 @@ export function MatchRunPanel({ run: initialRun, pendingCount }: Props) {
             <>
               마지막 배치 {run ? kstFmt.format(new Date(run.finishedAt ?? run.startedAt)) : "없음"}
               {run &&
-                ` · 수집 ${koInt.format(run.fetched)}/${koInt.format(run.total)}${run.failed ? ` · 실패 ${run.failed}` : ""} · 판정 ${koInt.format(run.judged)}${run.deferred ? ` · 다음으로 미룸 ${koInt.format(run.deferred)}` : ""}${run.judged ? ` · ${duration(run.elapsedSec)} 소요 · 토큰 ${koInt.format(run.tokens)}` : ""}`}
+                ` · 수집 ${koInt.format(run.fetched)}/${koInt.format(run.total)}${run.failed ? ` · 실패 ${run.failed}` : ""} · 판정 ${koInt.format(run.judged)}${run.deferred ? ` · 다음으로 미룸 ${koInt.format(run.deferred)}` : ""}${run.judged ? ` · ${duration(run.elapsedSec)} 소요` : ""}`}
               {run?.stalled && " · 중간에 끊김(끝난 판정은 저장됨)"}
             </>
           )}
@@ -197,7 +197,6 @@ export function MatchRunPanel({ run: initialRun, pendingCount }: Props) {
                   판정 {koInt.format(run.judged)} / {koInt.format(run.toJudge)}쌍 ({pct}%)
                 </span>
                 {run.failed > 0 && <span className="text-destructive">수집 실패 {run.failed}</span>}
-                <span className="text-muted-foreground">토큰 {koInt.format(run.tokens)}</span>
               </>
             )}
             <span className="text-muted-foreground">경과 {duration(run.elapsedSec)}</span>

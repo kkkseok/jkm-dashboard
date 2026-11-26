@@ -2,12 +2,14 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { ExternalLinkIcon, SearchIcon } from "lucide-react"
+import { ChevronLeftIcon, ChevronRightIcon, ExternalLinkIcon, SearchIcon } from "lucide-react"
 import {
   type ColumnDef,
+  type PaginationState,
   type SortingState,
   flexRender,
   getCoreRowModel,
+  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table"
@@ -16,7 +18,6 @@ import { toast } from "sonner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -64,7 +65,6 @@ import type { EvidenceCrop } from "@/lib/match/evidence"
 import type { Confidence, VerdictDifference } from "@/lib/match/judge-rules"
 
 const koInt = new Intl.NumberFormat("ko-KR")
-const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 })
 /** 서버(UTC)·브라우저 어디서 렌더해도 같은 문자열이 나오게 KST 고정. */
 const kstFmt = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul",
@@ -76,6 +76,15 @@ const kstFmt = new Intl.DateTimeFormat("ko-KR", {
   hour12: false,
 })
 const fmt = (iso: string | null) => (iso ? kstFmt.format(new Date(iso)) : "-")
+/** 목록용 짧은 표기(연도 생략) — `11-26 11:54`. */
+function fmtShort(iso: string | null): string {
+  if (!iso) return "-"
+  const p = Object.fromEntries(kstFmt.formatToParts(new Date(iso)).map((x) => [x.type, x.value]))
+  return `${p.month}-${p.day} ${p.hour}:${p.minute}`
+}
+
+/** 한 페이지에 보여줄 행 수 선택지. */
+const PAGE_SIZES = [25, 50, 100] as const
 
 /** 상태 배지 색 — 조치 필요(불일치·미반영·실패)는 빨강, 보류는 주황. */
 const STATUS_CLASS: Record<MatchStatus, string> = {
@@ -119,6 +128,8 @@ export function MatchDashboardClient({ data, stale }: Props) {
   const [search, setSearch] = React.useState("")
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [openId, setOpenId] = React.useState<number | null>(null)
+  const [pagination, setPagination] = React.useState<PaginationState>({ pageIndex: 0, pageSize: PAGE_SIZES[0] })
+  const toFirstPage = () => setPagination((p) => ({ ...p, pageIndex: 0 }))
 
   const actionCount = ACTION_STATUSES.reduce((s, k) => s + data.byStatus[k], 0)
 
@@ -135,7 +146,15 @@ export function MatchDashboardClient({ data, stale }: Props) {
   const columns = React.useMemo<ColumnDef<MatchDashboardRow>[]>(
     () => [
       { accessorKey: "matCode", header: "자재코드", cell: ({ getValue }) => <span className="tabular-nums">{getValue<string>()}</span> },
-      { accessorKey: "productName", header: "상품명", cell: ({ getValue }) => <span className="line-clamp-1">{getValue<string>()}</span> },
+      {
+        accessorKey: "productName",
+        header: "상품명",
+        cell: ({ getValue }) => (
+          <span className="block max-w-[22rem] truncate" title={getValue<string>()}>
+            {getValue<string>()}
+          </span>
+        ),
+      },
       {
         accessorKey: "status",
         header: "상태",
@@ -155,14 +174,29 @@ export function MatchDashboardClient({ data, stale }: Props) {
         accessorKey: "diffSummary",
         header: "차이 요약",
         enableSorting: false,
+        cell: ({ row }) => {
+          const text = row.original.status === "match" ? "" : (row.original.diffSummary ?? "")
+          // 한 줄로 자르고 전체 문장은 마우스를 올리면 보인다(상세 창에도 있다).
+          return (
+            <span className="block max-w-[28rem] truncate text-xs text-muted-foreground" title={text || undefined}>
+              {text}
+            </span>
+          )
+        },
+      },
+      {
+        accessorKey: "statusChangedAt",
+        header: "상태 변경 · 확인",
         cell: ({ row }) => (
-          <span className="line-clamp-2 text-xs text-muted-foreground">
-            {row.original.status === "match" ? "" : (row.original.diffSummary ?? "")}
+          <span
+            className="text-xs tabular-nums"
+            title={`상태 변경 ${fmt(row.original.statusChangedAt)} · 마지막 확인 ${fmt(row.original.lastCheckedAt)}`}
+          >
+            {fmtShort(row.original.statusChangedAt)}
+            <span className="ml-2 text-muted-foreground">확인 {fmtShort(row.original.lastCheckedAt)}</span>
           </span>
         ),
       },
-      { accessorKey: "statusChangedAt", header: "상태 변경", cell: ({ getValue }) => <span className="text-xs tabular-nums">{fmt(getValue<string>())}</span> },
-      { accessorKey: "lastCheckedAt", header: "마지막 확인", cell: ({ getValue }) => <span className="text-xs tabular-nums">{fmt(getValue<string | null>())}</span> },
       {
         id: "links",
         header: "링크",
@@ -182,14 +216,36 @@ export function MatchDashboardClient({ data, stale }: Props) {
     [],
   )
 
+  // 처리 뒤 목록이 줄어 현재 페이지가 범위를 벗어나면 마지막 페이지로 맞춘다.
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pagination.pageSize))
+  const pageIndex = Math.min(pagination.pageIndex, pageCount - 1)
+
   const table = useReactTable({
     data: filtered,
     columns,
-    state: { sorting },
-    onSortingChange: setSorting,
+    state: { sorting, pagination: { pageIndex, pageSize: pagination.pageSize } },
+    onSortingChange: (u) => {
+      setSorting(u)
+      toFirstPage()
+    },
+    onPaginationChange: setPagination,
+    // 새로고침(router.refresh)으로 데이터가 바뀌어도 보던 페이지를 유지한다 — 1페이지 이동은 필터·검색·정렬에서 직접 한다.
+    autoResetPageIndex: false,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
   })
+
+  /** 지금 필터·정렬 순서의 전체 id — 상세 창의 이전·다음 이동 순서. */
+  const orderedIds = table.getPrePaginationRowModel().rows.map((r) => r.original.id)
+  /** 상세 창에서 다른 쌍으로 이동 — 목록도 그 쌍이 있는 페이지로 따라간다. */
+  function openPair(id: number) {
+    setOpenId(id)
+    const i = orderedIds.indexOf(id)
+    if (i >= 0) setPagination((p) => ({ ...p, pageIndex: Math.floor(i / p.pageSize) }))
+  }
+  const firstRow = filtered.length === 0 ? 0 : pageIndex * pagination.pageSize + 1
+  const lastRow = Math.min(filtered.length, (pageIndex + 1) * pagination.pageSize)
 
   const filterCards: { key: Filter; label: string; count: number; tone?: string }[] = [
     { key: "action", label: "조치 필요", count: actionCount, tone: actionCount > 0 ? "text-destructive" : undefined },
@@ -211,7 +267,10 @@ export function MatchDashboardClient({ data, stale }: Props) {
           <button
             key={c.key}
             type="button"
-            onClick={() => setFilter(c.key)}
+            onClick={() => {
+              setFilter(c.key)
+              toFirstPage()
+            }}
             aria-pressed={filter === c.key}
             className={cn(
               "rounded-xl border bg-card p-3 text-left transition-colors hover:bg-muted/50",
@@ -230,7 +289,10 @@ export function MatchDashboardClient({ data, stale }: Props) {
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value)
+                toFirstPage()
+              }}
               placeholder="자재코드·상품명 검색"
               className="pl-8"
             />
@@ -246,7 +308,8 @@ export function MatchDashboardClient({ data, stale }: Props) {
           </div>
         </div>
 
-        <div className="rounded-lg border">
+        {/* 표 안에서만 스크롤 — 열 제목은 고정하고 필터 카드·검색이 화면에 남게 한다. */}
+        <div className="overflow-hidden rounded-lg border [&>[data-slot=table-container]]:max-h-[max(20rem,calc(100dvh-25rem))] [&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card [&_th]:shadow-[inset_0_-1px_0_var(--border)]">
           <Table>
             <TableHeader>
               {table.getHeaderGroups().map((hg) => (
@@ -275,7 +338,12 @@ export function MatchDashboardClient({ data, stale }: Props) {
                 </TableRow>
               ) : (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id} className="cursor-pointer" onClick={() => setOpenId(row.original.id)}>
+                  <TableRow
+                    key={row.id}
+                    className="cursor-pointer"
+                    data-state={openId === row.original.id ? "selected" : undefined}
+                    onClick={() => setOpenId(row.original.id)}
+                  >
                     {row.getVisibleCells().map((cell) => (
                       <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
                     ))}
@@ -285,11 +353,42 @@ export function MatchDashboardClient({ data, stale }: Props) {
             </TableBody>
           </Table>
         </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm text-muted-foreground">
+          <label className="flex items-center gap-2">
+            페이지당
+            <select
+              value={pagination.pageSize}
+              onChange={(e) => setPagination({ pageIndex: 0, pageSize: Number(e.target.value) })}
+              className="h-8 rounded-md border bg-background px-2 text-sm text-foreground"
+            >
+              {PAGE_SIZES.map((n) => (
+                <option key={n} value={n}>
+                  {n}행
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className="tabular-nums">
+            {koInt.format(firstRow)}–{koInt.format(lastRow)} / {koInt.format(filtered.length)}건
+          </span>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="sm" disabled={pageIndex === 0} onClick={() => setPagination((p) => ({ ...p, pageIndex: pageIndex - 1 }))}>
+              <ChevronLeftIcon />
+              이전
+            </Button>
+            <span className="px-2 tabular-nums">
+              {pageIndex + 1} / {pageCount}
+            </span>
+            <Button variant="outline" size="sm" disabled={pageIndex >= pageCount - 1} onClick={() => setPagination((p) => ({ ...p, pageIndex: pageIndex + 1 }))}>
+              다음
+              <ChevronRightIcon />
+            </Button>
+          </div>
+        </div>
       </div>
 
-      <UsagePanel usage={data.usage} />
-
-      <PairSheet pairId={openId} onClose={() => setOpenId(null)} />
+      <PairSheet pairId={openId} ids={orderedIds} onNavigate={openPair} onClose={() => setOpenId(null)} />
     </div>
   )
 }
@@ -319,81 +418,6 @@ function BatchStatus({ data, stale }: Props) {
           </AlertDescription>
         </Alert>
       )}
-    </div>
-  )
-}
-
-// ── 사용량 ───────────────────────────────────────────
-
-function UsagePanel({ usage }: { usage: MatchDashboard["usage"] }) {
-  const judged = usage.reduce((s, u) => s + u.judged, 0)
-  const input = usage.reduce((s, u) => s + u.inputTokens, 0)
-  const output = usage.reduce((s, u) => s + u.outputTokens, 0)
-  const api = usage.reduce((s, u) => s + u.apiEquivUsd, 0)
-  const maxTokens = Math.max(1, ...usage.map((u) => u.inputTokens + u.outputTokens))
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>AI 판정 사용량 (최근 30일)</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Stat label="판정 쌍" value={koInt.format(judged)} />
-          <Stat label="토큰 (입력+출력)" value={koInt.format(input + output)} sub={`입력 ${koInt.format(input)} · 출력 ${koInt.format(output)}`} />
-          <Stat label="쌍당 평균 토큰" value={judged ? koInt.format(Math.round((input + output) / judged)) : "-"} />
-          <Stat label="API 환산 금액" value={usd.format(api)} sub="구독 실행 — 실제 청구액 아님" />
-        </div>
-        {usage.length === 0 ? (
-          <p className="text-sm text-muted-foreground">기록이 없습니다.</p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>날짜</TableHead>
-                <TableHead className="text-right">배치</TableHead>
-                <TableHead className="text-right">판정</TableHead>
-                <TableHead className="w-1/3">토큰</TableHead>
-                <TableHead className="text-right">API 환산</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {usage.map((u) => {
-                const tokens = u.inputTokens + u.outputTokens
-                return (
-                  <TableRow key={u.date}>
-                    <TableCell className="tabular-nums">{u.date}</TableCell>
-                    <TableCell className="text-right tabular-nums">{u.runs}</TableCell>
-                    <TableCell className="text-right tabular-nums">{u.judged}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 flex-1 rounded-full bg-muted">
-                          <div className="h-2 rounded-full bg-primary" style={{ width: `${(tokens / maxTokens) * 100}%` }} />
-                        </div>
-                        <span className="w-24 text-right text-xs tabular-nums">{koInt.format(tokens)}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{usd.format(u.apiEquivUsd)}</TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        )}
-        <p className="text-xs text-muted-foreground">
-          판정은 Claude Code 구독으로 실행돼 API 요금은 나가지 않습니다. 토큰은 구독 사용량을 가늠하는 지표이고, 남은 구독 한도(%)는 여기서 알 수 없습니다.
-        </p>
-      </CardContent>
-    </Card>
-  )
-}
-
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="rounded-lg border p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
-      {sub && <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div>}
     </div>
   )
 }
@@ -470,19 +494,36 @@ function EvidenceImage({ crop }: { crop: EvidenceCrop }) {
   )
 }
 
-function PairSheet({ pairId, onClose }: { pairId: number | null; onClose: () => void }) {
+type PairNav = {
+  /** 목록(필터·정렬 적용) 순서의 전체 id. */
+  ids: number[]
+  onNavigate: (id: number) => void
+  onClose: () => void
+}
+
+function PairSheet({ pairId, ...nav }: { pairId: number | null } & PairNav) {
+  const { onClose } = nav
   return (
     <Sheet open={pairId != null} onOpenChange={(o) => !o && onClose()}>
       <SheetContent className="w-full gap-0 overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-5xl">
         {/* key: 다른 쌍을 열면 본문 상태(상세·메모)를 새로 시작한다 */}
-        {pairId != null && <PairSheetBody key={pairId} pairId={pairId} onClose={onClose} />}
+        {pairId != null && <PairSheetBody key={pairId} pairId={pairId} {...nav} />}
       </SheetContent>
     </Sheet>
   )
 }
 
-function PairSheetBody({ pairId, onClose }: { pairId: number; onClose: () => void }) {
+function PairSheetBody({ pairId, ids, onNavigate, onClose }: { pairId: number } & PairNav) {
   const router = useRouter()
+  // 처리한 쌍은 새로고침 뒤 목록에서 빠질 수 있다 — 그때는 위치를 알 수 없어 이동 버튼을 끈다.
+  const pos = ids.indexOf(pairId)
+  const prevId = pos > 0 ? ids[pos - 1] : null
+  const nextId = pos >= 0 && pos < ids.length - 1 ? ids[pos + 1] : null
+  const topRef = React.useRef<HTMLDivElement>(null)
+  // 다른 쌍으로 넘어오면 창을 맨 위부터 보여준다(스크롤 영역은 쌍이 바뀌어도 그대로라서).
+  React.useEffect(() => {
+    topRef.current?.scrollIntoView({ block: "start" })
+  }, [])
   const [detail, setDetail] = React.useState<MatchPairDetail | null>(null)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [note, setNote] = React.useState("")
@@ -504,7 +545,9 @@ function PairSheetBody({ pairId, onClose }: { pairId: number; onClose: () => voi
       try {
         await action()
         toast.success(ok)
-        onClose()
+        // 처리하면 바로 다음 건으로 — 마지막 건이면 닫는다.
+        if (nextId != null) onNavigate(nextId)
+        else onClose()
         router.refresh()
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "처리하지 못했습니다")
@@ -516,7 +559,9 @@ function PairSheetBody({ pairId, onClose }: { pairId: number; onClose: () => voi
 
   return (
     <>
-        <SheetHeader className="border-b">
+        <div ref={topRef} />
+        {/* 이미지를 내려 보다가도 이전·다음으로 넘어갈 수 있게 머리글을 고정한다. */}
+        <SheetHeader className="sticky top-0 z-10 border-b bg-background">
           <SheetTitle className="flex flex-wrap items-center gap-2">
             {p ? (
               <>
@@ -534,6 +579,21 @@ function PairSheetBody({ pairId, onClose }: { pairId: number; onClose: () => voi
               ? `마지막 확인 ${fmt(p.lastCheckedAt)} · 마지막 판정 ${fmt(p.lastJudgedAt)}${detail?.judged?.model ? ` (${detail.judged.model})` : ""}`
               : " "}
           </SheetDescription>
+          <div className="flex items-center gap-1 pt-1 text-sm text-muted-foreground">
+            <Button variant="outline" size="sm" disabled={prevId == null} onClick={() => prevId != null && onNavigate(prevId)}>
+              <ChevronLeftIcon />
+              이전 건
+            </Button>
+            <Button variant="outline" size="sm" disabled={nextId == null} onClick={() => nextId != null && onNavigate(nextId)}>
+              다음 건
+              <ChevronRightIcon />
+            </Button>
+            {pos >= 0 && (
+              <span className="px-2 tabular-nums">
+                {koInt.format(pos + 1)} / {koInt.format(ids.length)}
+              </span>
+            )}
+          </div>
         </SheetHeader>
 
         {loadError && (
