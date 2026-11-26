@@ -32,7 +32,7 @@ function pushSample(warnings: string[], prefix: string, msg: string, cap: number
 
 /** 상단 범위에서 필수 헤더 4개가 모두 있는 행을 찾는다. */
 function detectLayout(ws: XLSX.WorkSheet): {
-  layout: MatchSourceLayout
+  layout: Omit<MatchSourceLayout, 'sheet'>
   idx: Record<MatchSourceHeaderKey, number>
   headerR: number
 } {
@@ -45,7 +45,7 @@ function detectLayout(ws: XLSX.WorkSheet): {
     const found: Partial<Record<MatchSourceHeaderKey, number>> = {}
     for (let c = 0; c <= maxCol; c++) {
       const v = normHeader(ws[XLSX.utils.encode_cell({ r, c })]?.v)
-      const key = keys.find((k) => normHeader(MATCH_SOURCE.headers[k]) === v)
+      const key = keys.find((k) => MATCH_SOURCE.headers[k].some((name) => normHeader(name) === v))
       if (key && found[key] === undefined) found[key] = c
     }
     if (keys.every((k) => found[k] !== undefined)) {
@@ -66,7 +66,7 @@ function detectLayout(ws: XLSX.WorkSheet): {
       }
     }
   }
-  const names = keys.map((k) => MATCH_SOURCE.headers[k]).join(' / ')
+  const names = keys.map((k) => MATCH_SOURCE.headers[k].join('(또는 ') + (MATCH_SOURCE.headers[k].length > 1 ? ')' : '')).join(' / ')
   throw new Error(
     `헤더를 찾지 못했습니다. 상단 ${MATCH_SOURCE.headerScanRows}행 안에 "${names}" 가 한 행에 모두 있어야 합니다.`,
   )
@@ -75,8 +75,13 @@ function detectLayout(ws: XLSX.WorkSheet): {
 /** 워크북 버퍼(평문) → 대조 쌍. 테스트에서 직접 호출한다. */
 export function parseMatchSourceBuffer(buf: ArrayBuffer): MatchSourceParseResult {
   const wb = XLSX.read(buf, { type: 'array' })
-  const ws = wb.Sheets[wb.SheetNames[0]]
-  const { layout, idx, headerR } = detectLayout(ws)
+  const sheet = wb.SheetNames.includes(MATCH_SOURCE.preferredSheet)
+    ? MATCH_SOURCE.preferredSheet
+    : wb.SheetNames[0]
+  const ws = wb.Sheets[sheet]
+  const detected = detectLayout(ws)
+  const { idx, headerR } = detected
+  const layout: MatchSourceLayout = { ...detected.layout, sheet }
   // sheet_to_json 은 기본으로 !ref 시작 셀(예시 파일은 B2)부터 배열을 만들어 행·열이 모두 밀린다.
   // 범위를 A1 부터로 강제해 배열 인덱스 = 시트 행·열 인덱스로 맞춘다.
   const ref = XLSX.utils.decode_range(ws['!ref'] ?? 'A1')

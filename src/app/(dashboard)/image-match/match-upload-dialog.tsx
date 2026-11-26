@@ -61,7 +61,7 @@ export function MatchUploadDialog({
           {open && (
             <UploadCard<MatchSourcePreview>
               title="대조 대상 URL"
-              description="자재코드 · 자재명 · GS · 본사 헤더가 있는 엑셀(헤더 위치는 자동 인식)."
+              description="자재코드 · 자재명(상품명) · GS · 본사(더마켓) 헤더가 있는 엑셀(헤더 위치는 자동 인식). '전체리스트' 시트가 있으면 그 시트를 읽습니다."
               lastCount={total}
               lastUpdatedAt={lastRegisteredAt}
               parse={parseWithDiff}
@@ -80,17 +80,17 @@ export function MatchUploadDialog({
                   <p>
                     <span className="font-medium tabular-nums">{koInt.format(p.stats.validCount)}</span>건 · 신규{" "}
                     <span className="font-medium tabular-nums">{koInt.format(p.diff.newCount)}</span> · URL 변경{" "}
-                    <span className="font-medium tabular-nums">{koInt.format(p.diff.urlChangedCount)}</span> · 상품명 변경{" "}
+                    <span className="font-medium tabular-nums">{koInt.format(p.diff.urlChangedCount)}</span> · 표기만 변경{" "}
                     {koInt.format(p.diff.nameChangedCount)} · 동일 {koInt.format(p.diff.sameCount)}
                   </p>
                   {p.diff.urlChangedCount > 0 && (
-                    <p className="text-xs text-warning">URL 이 바뀐 쌍은 상태가 &lsquo;미확인&rsquo;으로 초기화됩니다.</p>
+                    <p className="text-xs text-warning">상품번호가 바뀐 쌍은 상태가 &lsquo;미확인&rsquo;으로 초기화됩니다.</p>
                   )}
                   <p className="text-xs text-muted-foreground">
                     제외 · 자재코드 중복 {koInt.format(p.stats.dupCount)} · 형식 오류 {koInt.format(p.stats.invalidCount)}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    인식 · 헤더 {p.layout.headerRow}행 · 자재코드 {p.layout.cols.matCode}열 · 자재명{" "}
+                    인식 · 시트 {p.layout.sheet} · 헤더 {p.layout.headerRow}행 · 자재코드 {p.layout.cols.matCode}열 · 자재명{" "}
                     {p.layout.cols.productName}열 · GS {p.layout.cols.gsUrl}열 · 본사 {p.layout.cols.cjUrl}열
                   </p>
                 </div>

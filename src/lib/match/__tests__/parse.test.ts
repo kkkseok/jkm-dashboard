@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import * as XLSX from 'xlsx'
 import { parseMatchSourceBuffer } from '../parse'
+import { cjProductId, gsProductId, sameProductUrls } from '../mapping'
 
 type Cell = string | number | null
 
@@ -45,6 +46,7 @@ describe('parseMatchSourceBuffer', () => {
     )
     const r = parseMatchSourceBuffer(buf)
     expect(r.layout).toEqual({
+      sheet: 'Sheet1',
       headerRow: 2,
       cols: { matCode: 'B', productName: 'C', gsUrl: 'D', cjUrl: 'E' },
     })
@@ -100,5 +102,80 @@ describe('parseMatchSourceBuffer', () => {
       [1, '상품', GS(1)],
     ])
     expect(() => parseMatchSourceBuffer(buf)).toThrow(/헤더를 찾지 못했습니다/)
+  })
+
+  it('운영 목록 표기(상품명·더마켓)도 인식한다', () => {
+    const buf = toBuffer(
+      [
+        ['자재코드', '상품명', 'GS', '더마켓'],
+        [207969, '비비고 소고기양지 육수 500g x3개', GS(1066284526), CJ(40161425)],
+      ],
+      'B2',
+    )
+    const r = parseMatchSourceBuffer(buf)
+    expect(r.layout.cols).toEqual({ matCode: 'B', productName: 'C', gsUrl: 'D', cjUrl: 'E' })
+    expect(r.rows).toEqual([
+      {
+        matCode: '207969',
+        productName: '비비고 소고기양지 육수 500g x3개',
+        gsUrl: GS(1066284526),
+        cjUrl: CJ(40161425),
+      },
+    ])
+  })
+
+  it("'전체리스트' 시트가 있으면 첫 시트가 아니어도 그 시트를 읽는다", () => {
+    const sheet = (aoa: Cell[][]) => XLSX.utils.aoa_to_sheet(aoa)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(
+      wb,
+      sheet([
+        ['자재코드', '상품명', 'GS', '더마켓'],
+        [1, '완료분', GS(1), CJ(1)],
+      ]),
+      '완료',
+    )
+    XLSX.utils.book_append_sheet(
+      wb,
+      sheet([
+        ['자재코드', '상품명', 'GS', '더마켓'],
+        [1, '전체1', GS(1), CJ(1)],
+        [2, '전체2', GS(2), CJ(2)],
+      ]),
+      '전체리스트',
+    )
+    const r = parseMatchSourceBuffer(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer)
+    expect(r.layout.sheet).toBe('전체리스트')
+    expect(r.rows.map((x) => x.productName)).toEqual(['전체1', '전체2'])
+  })
+})
+
+describe('sameProductUrls — 상품번호 기준 비교', () => {
+  const pair = (cjUrl: string, gsUrl: string) => ({ cjUrl, gsUrl })
+  const cjTail = (n: number, tail: string) =>
+    `https://www.cjthemarket.com/the/product/product-main?prdCd=${n}${tail}`
+
+  it('상품번호를 읽는다', () => {
+    expect(cjProductId(CJ(40161425))).toBe('40161425')
+    expect(gsProductId(GS(1066284526))).toBe('1066284526')
+    expect(cjProductId('https://www.cjthemarket.com/the/product/product-main')).toBeNull()
+  })
+
+  it('CJ 주소 꼬리표만 다르면 같은 상품이다', () => {
+    expect(
+      sameProductUrls(
+        pair(cjTail(40134660, ''), GS(1)),
+        pair(cjTail(40134660, '&spclCtgrId=&ctgrId=&plnId=300004&areaNum=1'), GS(1)),
+      ),
+    ).toBe(true)
+  })
+
+  it('CJ 또는 GS 상품번호가 다르면 다른 상품이다', () => {
+    expect(sameProductUrls(pair(CJ(40125936), GS(1)), pair(CJ(40161425), GS(1)))).toBe(false)
+    expect(sameProductUrls(pair(CJ(1), GS(1083471042)), pair(CJ(1), GS(1121062262)))).toBe(false)
+  })
+
+  it('앞자리가 같은 상품번호를 같은 상품으로 보지 않는다', () => {
+    expect(sameProductUrls(pair(CJ(4016142), GS(1)), pair(CJ(40161425), GS(1)))).toBe(false)
   })
 })

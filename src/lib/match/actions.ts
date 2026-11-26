@@ -3,7 +3,7 @@
 import { db } from '@/db/client'
 import { matchPair, matchStatusLog } from '@/db/schema'
 import { eq, inArray } from 'drizzle-orm'
-import { CJ_URL_RE, GS_URL_RE } from './mapping'
+import { CJ_URL_RE, GS_URL_RE, sameProductUrls } from './mapping'
 import {
   type MatchPairInput,
   type MatchUploadDiff,
@@ -15,8 +15,9 @@ import {
  *
  * 업로드는 **누적 upsert**(사용자 확정 2026-10-28): 파일에 없는 기존 쌍은 건드리지 않는다.
  *   - 신규 자재코드 → insert (status 'new')
- *   - URL 변경 → URL 갱신 + status 'new' 로 초기화 + 상태 이력(actor 'upload')
- *   - 상품명만 변경 → 상품명만 갱신 (상태 유지)
+ *   - 상품번호(prdCd·prdid) 변경 → URL 갱신 + status 'new' 로 초기화 + 상태 이력(actor 'upload')
+ *   - 같은 상품인데 상품명·주소 표기(꼬리표)만 변경 → 상품명·URL 만 갱신 (상태 유지)
+ *     — URL 을 문자열로 비교하면 CJ 주소 꼬리표 차이로 상태가 초기화된다(mapping.sameProductUrls).
  * 대상은 ≤500쌍 규모라 한 번의 호출로 보낸다(Server Action body 1MB 이내).
  */
 
@@ -68,8 +69,9 @@ function classify(rows: MatchPairInput[], existing: Map<string, Existing>): Clas
   for (const row of rows) {
     const prev = existing.get(row.matCode)
     if (!prev) out.inserts.push(row)
-    else if (prev.cjUrl !== row.cjUrl || prev.gsUrl !== row.gsUrl) out.urlChanged.push({ row, prev })
-    else if (prev.productName !== row.productName) out.nameChanged.push({ row, prev })
+    else if (!sameProductUrls(prev, row)) out.urlChanged.push({ row, prev })
+    else if (prev.productName !== row.productName || prev.cjUrl !== row.cjUrl || prev.gsUrl !== row.gsUrl)
+      out.nameChanged.push({ row, prev })
     else out.unchanged++
   }
   return out
@@ -129,7 +131,7 @@ export async function upsertMatchPairs(rows: MatchPairInput[]): Promise<MatchUpl
     for (const { row, prev } of c.nameChanged) {
       await tx
         .update(matchPair)
-        .set({ productName: row.productName, updatedAt: now })
+        .set({ productName: row.productName, cjUrl: row.cjUrl, gsUrl: row.gsUrl, updatedAt: now })
         .where(eq(matchPair.id, prev.id))
     }
 

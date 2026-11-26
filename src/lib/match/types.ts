@@ -38,6 +38,8 @@ export type MatchPairInput = {
 
 /** 헤더 이름으로 찾은 레이아웃 (미리보기 표시용). 행은 Excel 1-based, 열은 letter. */
 export type MatchSourceLayout = {
+  /** 읽은 시트 이름. */
+  sheet: string
   headerRow: number
   cols: { matCode: string; productName: string; gsUrl: string; cjUrl: string }
 }
@@ -59,9 +61,9 @@ export type MatchSourceParseResult = {
 /** DB 와 비교한 업로드 미리보기. */
 export type MatchUploadDiff = {
   newCount: number
-  /** URL 이 바뀐 쌍 — 상태가 '미확인'으로 초기화된다. */
+  /** 상품번호(prdCd·prdid)가 바뀐 쌍 — 상태가 '미확인'으로 초기화된다. */
   urlChangedCount: number
-  /** 상품명만 바뀐 쌍. */
+  /** 같은 상품인데 상품명이나 주소 표기(꼬리표)만 바뀐 쌍 — 상태 유지. */
   nameChangedCount: number
   sameCount: number
 }
